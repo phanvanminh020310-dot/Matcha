@@ -1,0 +1,80 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+  html {
+    -webkit-text-size-adjust: 100%;
+    scroll-behavior: smooth;
+  }
+  html.dark {
+    color-scheme: dark;
+  }
+  body {
+    @apply bg-cream-100 text-ink-900 antialiased;
+    font-feature-settings: 'cv02', 'cv03', 'cv04';
+    text-rendering: optimizeLegibility;
+  }
+  html.dark body {
+    @apply bg-ink-950 text-ink-100;
+  }
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(203 213 210) transparent;
+  }
+  ::-webkit-scrollbar { width: 9px; height: 9px }
+  ::-webkit-scrollbar-thumb { background: rgba(120, 135, 125, .35); border-radius: 999px; border: 2px solid transparent; background-clip: content-box }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(120, 135, 125, .55); background-clip: content-box }
+  ::selection { @apply bg-matcha-200 text-matcha-950 }
+  input[type='number']::-webkit-outer-spin-button,
+  input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0 }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@layer components {
+  .surface {
+    @apply rounded-2xl border border-ink-200/80 bg-white shadow-soft dark:border-ink-800 dark:bg-ink-900;
+  }
+  .table-base {
+    @apply w-full border-collapse text-left text-[13px];
+  }
+  .table-base thead th {
+    @apply sticky top-0 z-10 whitespace-nowrap border-b border-ink-200 bg-ink-50/95 px-3 py-2.5 text-[11.5px] font-semibold uppercase tracking-wide text-ink-500 backdrop-blur dark:border-ink-800 dark:bg-ink-900/95 dark:text-ink-400;
+  }
+  .table-base tbody td {
+    @apply border-b border-ink-100 px-3 py-2.5 align-middle text-ink-700 dark:border-ink-800/70 dark:text-ink-200;
+  }
+  .table-base tbody tr:hover {
+    @apply bg-matcha-50/50 dark:bg-ink-800/40;
+  }
+  .num { @apply tabular-nums; }
+  .link-underline { @apply underline decoration-ink-300 decoration-1 underline-offset-2 hover:decoration-matcha-500; }
+}
+
+/* ------------------------- IN HÓA ĐƠN K80 / TEM LY ------------------------ */
+.print-area { display: none }
+
+@media print {
+  @page { size: 80mm auto; margin: 2mm }
+  body { background: #fff !important; }
+  body > *:not(.print-root) { display: none !important }
+  .print-root { display: block !important }
+  .print-area { display: block !important; width: 76mm; font-family: 'Be Vietnam Pro', sans-serif; font-size: 10.5px; color: #000 }
+  .print-area--labels { width: 76mm }
+  .print-area table { width: 100%; border-collapse: collapse }
+  .print-area td, .print-area th { padding: 1.2mm 0; }
+  .print-hr { border-top: 1px dashed #000; margin: 1.5mm 0 }
+  .cup-label { break-inside: avoid; page-break-inside: avoid; border: 1px dashed #000; padding: 1.5mm; margin-bottom: 2mm }
+  .no-print { display: none !important }
+}

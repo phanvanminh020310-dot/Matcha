@@ -1,0 +1,42 @@
+{
+  "name": "matcha-pos",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0 --port 5173",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0 --port 4173",
+    "serve": "node scripts/serve.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "Matcha POS - Hệ thống quản lý bán hàng chuỗi trà sữa & cà phê (POS, KDS, ERP, Data Explorer)",
+  "dependencies": {
+    "@tanstack/react-table": "^9.3.1",
+    "@xyflow/react": "^12.12.0",
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.66.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.30.6",
+    "recharts": "^3.10.1",
+    "sql.js": "^1.15.2",
+    "zod": "^4.6.7",
+    "zustand": "^5.0.16"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.31",
+    "@types/react-dom": "^18.3.7",
+    "@types/sql.js": "^1.4.11",
+    "@vitejs/plugin-react": "^6.1.2",
+    "autoprefixer": "^10.6.2",
+    "postcss": "^8.5.32",
+    "tailwindcss": "^3.4.19",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.5"
+  },
+  "private": true,
+  "type": "module"
+}
