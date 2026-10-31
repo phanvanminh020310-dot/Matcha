@@ -124,19 +124,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <header className="sticky top-0 z-30 flex h-16 items-center gap-2 border-b border-ink-200/80 bg-cream-100/85 px-3 backdrop-blur-xl dark:border-ink-800 dark:bg-ink-950/85 sm:px-5">
           <IconButton label="Mở menu" className="lg:hidden" onClick={() => setMobileNav(true)}><Menu size={20} /></IconButton>
 
-          <div className="hidden min-w-0 items-center gap-2 text-[13px] text-ink-500 md:flex">
-            <span className="text-ink-400">{role ? ROLE_LABEL[role as Role] : ''}</span>
-            <span className="text-ink-300">/</span>
+          <div className="hidden min-w-0 shrink items-center gap-2 whitespace-nowrap text-[13px] text-ink-500 md:flex">
+            <span className="hidden text-ink-400 xl:inline">{role ? ROLE_LABEL[role as Role] : ''}</span>
+            <span className="hidden text-ink-300 xl:inline">/</span>
             <span className="truncate font-medium text-ink-800 dark:text-ink-100">{currentLabel}</span>
           </div>
 
           <button
             onClick={() => setPaletteOpen(true)}
-            className="ml-auto flex h-10 items-center gap-2 rounded-xl border border-ink-200 bg-white px-3 text-[13px] text-ink-400 transition-colors hover:border-ink-300 dark:border-ink-700 dark:bg-ink-900 sm:w-64"
+            className="ml-auto hidden h-10 items-center gap-2 rounded-xl border border-ink-200 bg-white px-3 text-[13px] text-ink-400 transition-colors hover:border-ink-300 dark:border-ink-700 dark:bg-ink-900 md:flex lg:w-56 xl:w-64"
           >
             <Search size={15} />
-            <span className="hidden sm:inline">Tìm món, đơn, chức năng…</span>
-            <span className="ml-auto hidden items-center gap-1 sm:flex"><Kbd>Ctrl</Kbd><Kbd>K</Kbd></span>
+            <span className="hidden whitespace-nowrap xl:inline">Tìm món, đơn, chức năng…</span>
+            <span className="ml-auto hidden items-center gap-1 xl:flex"><Kbd>Ctrl</Kbd><Kbd>K</Kbd></span>
           </button>
 
           {/* branch switcher */}
@@ -145,7 +145,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               value={branchId}
               onChange={(e) => setBranch(Number(e.target.value))}
               aria-label="Chọn chi nhánh"
-              className="h-10 max-w-[168px] cursor-pointer appearance-none rounded-xl border border-ink-200 bg-white pl-8 pr-7 text-[13px] font-medium text-ink-800 focus:border-matcha-500 focus:outline-none dark:border-ink-700 dark:bg-ink-900 dark:text-ink-100"
+              className="h-10 w-[104px] max-w-[168px] cursor-pointer appearance-none rounded-xl border border-ink-200 bg-white pl-8 pr-7 text-[13px] font-medium text-ink-800 focus:border-matcha-500 focus:outline-none dark:border-ink-700 dark:bg-ink-900 dark:text-ink-100 sm:w-auto"
             >
               {branches.map((b: Branch) => (
                 <option key={b.id} value={b.id}>{b.code} · {b.city}</option>
@@ -158,7 +158,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <IconButton label="Đổi giao diện sáng/tối" onClick={toggleTheme}>{theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}</IconButton>
 
           <div className="flex items-center gap-2 border-l border-ink-200 pl-2 dark:border-ink-700">
-            <div className="hidden text-right sm:block">
+            <div className="hidden text-right lg:block">
               <p className="max-w-[140px] truncate text-[13px] font-semibold leading-tight text-ink-900 dark:text-ink-50">{user?.name}</p>
               <p className="text-[11px] text-ink-400">{role ? ROLE_LABEL[role as Role] : ''}</p>
             </div>

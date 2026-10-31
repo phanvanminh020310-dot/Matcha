@@ -187,7 +187,7 @@ export function POSPage() {
   }
 
   return (
-    <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_400px]">
+    <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_340px] xl:grid-cols-[minmax(0,1fr)_400px]">
       {/* ---------------------------- LEFT: catalog ---------------------------- */}
       <div className="min-w-0">
         <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -221,7 +221,7 @@ export function POSPage() {
         {filtered.length === 0 ? (
           <Card><EmptyState icon={<Coffee size={22} />} title="Không có món nào khớp" description="Thử từ khoá khác hoặc bỏ bộ lọc danh mục." /></Card>
         ) : (
-          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5">
+          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
             {filtered.map((p) => {
               const fav = favorites.includes(p.id)
               const inCart = lines.filter((l) => l.productId === p.id).reduce((s, l) => s + l.qty, 0)
