@@ -127,7 +127,6 @@ export default function App() {
         if (!mounted) return
         ensureRoles()
         refreshRbac()
-        setReady(true)
         // Nếu user đã cấu hình Postgres cloud và bật tự đồng bộ → kéo dữ liệu mới nhất về máy
         // Giải mã anon key + mã đồng bộ đã mã hoá trong máy (khoá AES nằm trong IndexedDB)
         // PHẢI chạy TRƯỚC loadCloud(), nếu không key/token sẽ rỗng và app mất đồng bộ.
@@ -151,7 +150,11 @@ export default function App() {
         if (cloud.url && cloud.key && (cloud.autoSync || firstRun) && !justSynced) {
           console.info('[matcha][cloud] auto-pull bắt đầu', cloud.url)
           try {
-            const res = await pullAll(cloud, (p) => { if (!p.done) console.info(`[matcha][cloud] ${p.table} ${p.rows}`) })
+            if (mounted) setProgress((prev) => [...prev, { step: 'Đang tải dữ liệu từ máy chủ', detail: 'Postgres · nhiều máy dùng chung' }])
+            const res = await pullAll(cloud, (p) => {
+              if (!p.done) console.info(`[matcha][cloud] ${p.table} ${p.rows}`)
+              if (mounted && !p.done) setProgress((prev) => [...prev.slice(0, -1), { step: 'Đang tải dữ liệu từ máy chủ', detail: `${p.table} · ${p.index}/${p.total} bảng` }])
+            })
             console.info('[matcha][cloud] auto-pull xong', res.rows, 'dòng')
             if (firstRun) saveCloud({ ...loadCloud(), autoSync: true })
             ensureRoles() // cloud có thể trống bảng roles → tạo lại vai trò mặc định
@@ -169,8 +172,11 @@ export default function App() {
         } else {
           console.info('[matcha][cloud] chưa cấu hình auto-sync', { autoSync: cloud.autoSync, url: !!cloud.url, key: !!cloud.key })
         }
+        // Chỉ hiện giao diện SAU khi đã tải xong dữ liệu cloud → không lộ màn "thiết lập lần đầu" giả
+        if (mounted) setReady(true)
       })
       .catch((e) => { if (mounted) setError(String(e)) })
+      .finally(() => { if (mounted) setReady(true) }) // luôn mở được app, kể cả khi đồng bộ lỗi
     return () => { mounted = false }
   }, [])
 

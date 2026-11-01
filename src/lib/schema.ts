@@ -561,7 +561,7 @@ const COLUMN_META_CORE: Record<string, ColumnMeta[]> = {
     C('name', 'TEXT', 'Họ tên'),
     C('email', 'TEXT', 'Email đăng nhập', { unique: true }),
     C('phone', 'TEXT', 'Số điện thoại', { nullable: true }),
-    C('password', 'TEXT', 'Mật khẩu demo (plaintext — chỉ dùng cho bản demo)'),
+    C('password', 'TEXT', 'Mật khẩu đăng nhập (băm PBKDF2, không bao giờ lưu chữ thường)'),
     C('role', 'TEXT', 'Vai trò RBAC'),
     C('branch_id', 'INTEGER', 'Chi nhánh trực thuộc', { fk: { table: 'branches', column: 'id' } }),
     C('salary', 'INTEGER', 'Lương cơ bản (VND)'),
