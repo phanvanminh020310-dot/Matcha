@@ -52,6 +52,14 @@ Bấm là dùng — không đăng nhập, không cài đặt. Màn hình đăng 
 | --- | --- |
 | ![Admin](docs/screenshots/50-quan-tri-du-lieu.png) | ![Roles](docs/screenshots/51-vai-tro-phan-quyen.png) |
 
+| App tài xế — GPS thật từ điện thoại | ERD 75 bảng (Data Explorer) |
+| --- | --- |
+| ![Driver](docs/screenshots/52-app-tai-xe-gps-that.png) | ![ERD](docs/screenshots/53-erd-75-bang.png) |
+
+| Máy mới: kết nối 1 nút + đối chiếu máy ↔ cloud |
+| --- |
+| ![Compare](docs/screenshots/54-doi-chieu-may-cloud.png) |
+
 Các ảnh khác trong [`docs/screenshots`](docs/screenshots): đăng nhập, thanh toán, hoá đơn, đơn hàng, thực đơn, công thức, kho, mua hàng, khách hàng, khuyến mãi, nhân sự, tài chính, báo cáo, cài đặt, SQL Console, dark mode, tablet.
 
 ---
@@ -343,6 +351,10 @@ Nếu bị chặn ở đâu (quyền GitHub, dịch vụ deploy…), dự án v�
 | Menu & trang theo vai trò | ✅ Thu ngân không thấy “Quản trị dữ liệu”, vào thẳng `#/admin` bị chặn |
 | Migration schema v4 → v5 (giữ dữ liệu) | ✅ nâng cấp tại chỗ, thêm bảng `roles`, không seed lại |
 | Push bảng `roles` lên cloud | ✅ cloud 6 vai trò (owner 24 · manager 22 · cashier 8 · barista 4 · accountant 9 · shipper 2 quyền) |
+| **Máy mới nhập đúng mã đồng bộ** | ✅ nút *Kết nối & tải toàn bộ*: kéo 62.372 dòng / 74 bảng, bật tự đồng bộ, *Đối chiếu* → **Khớp hoàn toàn** |
+| **GPS thật** (không mô phỏng) | ✅ bật chia sẻ vị trí → điểm `source='gps'` (10.7772, 106.7012) nằm trong `driver_positions` **trên Postgres**; bản đồ hiện “1 xe đang phát GPS thật” |
+| Schema v5 → v6 (giữ dữ liệu) | ✅ tự tạo 40 bảng mới + sinh dữ liệu cho bảng mới trên máy đang chạy |
+| 75 bảng trên cloud | ✅ `information_schema` = 75 bảng, 74 bảng có 4 policy RLS (đọc/ghi/sửa/xoá) |
 
 Ảnh kiểm thử nằm trong `docs/screenshots/`.
 
