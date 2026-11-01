@@ -1,58 +1,61 @@
-/** Phân quyền RBAC: vai trò → tập quyền; menu lọc theo quyền. */
-export type Role = 'owner' | 'manager' | 'cashier' | 'barista' | 'accountant'
+/**
+ * Phân quyền RBAC ĐỘNG: vai trò & quyền nằm trong bảng `roles` (SQLite/Postgres),
+ * sửa được ngay trong app (màn hình Vai trò & phân quyền) — không hard-code.
+ * `DEFAULT_ROLES` chỉ dùng khi CSDL chưa có bảng roles (lần chạy đầu).
+ */
+import { dbEvents } from './db'
+import { ALL_PERMS, DEFAULT_ROLES, getRoles, permsOf } from './permissions'
+
+export type Role = string
 
 export type Permission =
-  | 'pos.sell'
-  | 'pos.discount'
-  | 'pos.cancel'
-  | 'pos.shift'
-  | 'kds.view'
-  | 'kds.update'
-  | 'bo.dashboard'
-  | 'bo.products'
-  | 'bo.recipes'
-  | 'bo.inventory'
-  | 'bo.purchasing'
-  | 'bo.customers'
-  | 'bo.promotions'
-  | 'bo.orders'
-  | 'bo.delivery'
-  | 'bo.print'
-  | 'bo.staff'
-  | 'bo.finance'
-  | 'bo.reports'
-  | 'bo.settings'
-  | 'admin.data'
-  | 'admin.erp'
+  | 'pos.sell' | 'pos.discount' | 'pos.cancel' | 'pos.shift'
+  | 'kds.view' | 'kds.update'
+  | 'bo.dashboard' | 'bo.products' | 'bo.recipes' | 'bo.inventory' | 'bo.purchasing' | 'bo.customers'
+  | 'bo.promotions' | 'bo.orders' | 'bo.delivery' | 'bo.print' | 'bo.staff' | 'bo.finance' | 'bo.reports' | 'bo.settings'
+  | 'admin.master' | 'admin.roles' | 'admin.data' | 'admin.erp'
 
-const ALL: Permission[] = [
-  'pos.sell', 'pos.discount', 'pos.cancel', 'pos.shift', 'kds.view', 'kds.update',
-  'bo.dashboard', 'bo.products', 'bo.recipes', 'bo.inventory', 'bo.purchasing', 'bo.customers',
-  'bo.promotions', 'bo.orders', 'bo.delivery', 'bo.print', 'bo.staff', 'bo.finance', 'bo.reports', 'bo.settings', 'admin.data', 'admin.erp',
-]
+export { ALL_PERMS }
 
-export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
-  owner: ALL,
-  manager: [
-    'pos.sell', 'pos.discount', 'pos.cancel', 'pos.shift', 'kds.view', 'kds.update',
-    'bo.dashboard', 'bo.products', 'bo.recipes', 'bo.inventory', 'bo.purchasing', 'bo.customers',
-    'bo.promotions', 'bo.orders', 'bo.delivery', 'bo.print', 'bo.staff', 'bo.reports', 'bo.settings', 'admin.erp',
-  ],
-  cashier: ['pos.sell', 'pos.discount', 'pos.shift', 'kds.view', 'bo.orders', 'bo.delivery', 'bo.print', 'bo.customers'],
-  barista: ['kds.view', 'kds.update', 'bo.orders', 'bo.delivery'],
-  accountant: ['bo.dashboard', 'bo.inventory', 'bo.purchasing', 'bo.finance', 'bo.reports', 'bo.orders', 'bo.delivery', 'bo.print', 'bo.customers'],
+let cache: Record<string, string[]> | null = null
+
+/** Xoá cache khi dữ liệu đổi (sửa vai trò, đăng nhập vai trò khác…). */
+export function refreshRbac() { cache = null }
+dbEvents.subscribe(refreshRbac)
+
+function permMap(): Record<string, string[]> {
+  if (cache) return cache
+  const out: Record<string, string[]> = {}
+  try {
+    const rows = getRoles()
+    if (rows.length) {
+      rows.forEach((r) => { out[r.id] = permsOf(r) })
+    }
+  } catch { /* CSDL chưa sẵn sàng */ }
+  if (!Object.keys(out).length) DEFAULT_ROLES.forEach((r) => { out[r.id] = r.perms })
+  cache = out
+  return out
 }
 
-export function can(role: Role | undefined, perm: Permission): boolean {
+export function permsFor(role: Role | undefined | null): string[] {
+  if (!role) return []
+  return permMap()[role] ?? []
+}
+
+export function can(role: Role | undefined | null, perm: Permission | string): boolean {
   if (!role) return false
-  return ROLE_PERMISSIONS[role]?.includes(perm) ?? false
+  return permsFor(role).includes(perm)
+}
+
+export function canAny(role: Role | undefined | null, perms: (Permission | string)[]): boolean {
+  return perms.some((p) => can(role, p))
 }
 
 export interface NavItem {
   to: string
   label: string
   icon: string
-  perm?: Permission
+  perm?: Permission | string
   group: 'Bán hàng' | 'Vận hành' | 'Quản trị' | 'Hệ thống'
   badge?: 'kds'
 }
@@ -75,6 +78,8 @@ export const NAV: NavItem[] = [
 
   { to: '/reports', label: 'Báo cáo', icon: 'ChartColumnBig', perm: 'bo.reports', group: 'Quản trị' },
   { to: '/finance', label: 'Tài chính', icon: 'Wallet', perm: 'bo.finance', group: 'Quản trị' },
+  { to: '/admin', label: 'Quản trị dữ liệu', icon: 'DatabaseZap', perm: 'admin.master', group: 'Quản trị' },
+  { to: '/roles', label: 'Vai trò & phân quyền', icon: 'ShieldCheck', perm: 'admin.roles', group: 'Quản trị' },
   { to: '/settings', label: 'Cài đặt', icon: 'Settings', perm: 'bo.settings', group: 'Quản trị' },
 
   { to: '/print', label: 'Studio in ấn', icon: 'Printer', perm: 'bo.print', group: 'Hệ thống' },

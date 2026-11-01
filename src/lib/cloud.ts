@@ -123,7 +123,7 @@ const pkOf = (table: string) => pkCols(table)[0]
  * nên nạp sai thứ tự sẽ vi phạm FK ngay (vd orders cần dining_tables/shifts/customers trước).
  */
 export const SYNC_ORDER = [
-  'branches', 'users', 'categories', 'products', 'product_sizes', 'toppings', 'product_toppings',
+  'branches', 'users', 'roles', 'categories', 'products', 'product_sizes', 'toppings', 'product_toppings',
   'suppliers', 'ingredients', 'recipes', 'inventory_stock', 'inventory_txns',
   'purchase_orders', 'purchase_order_items', 'dining_tables', 'customers', 'vouchers', 'promotions',
   'shifts', 'shift_cash_txns', 'orders', 'order_items', 'order_item_toppings', 'payments', 'order_events',

@@ -10,8 +10,8 @@ import { REALTIME_SQL } from '../lib/realtime'
 import { RLS_SQL } from '../lib/rls'
 import { buildSeedSQL, keyWarning, loadCloud, localCounts, pullAll, pushAll, saveCloud, testCloud, toPgDDL, type CloudConfig, type SyncProgress } from '../lib/cloud'
 import { downloadFile } from '../lib/format'
-import {ROLE_PERMISSIONS, type Role} from '../lib/rbac'
-import { METHOD_LABEL, ROLE_LABEL, cx, formatDateTime, formatVND } from '../lib/format'
+import { PERM_GROUPS, getRoles, permsOf } from '../lib/permissions'
+import { METHOD_LABEL, cx, formatDateTime, formatVND } from '../lib/format'
 
 const PERM_LABEL: Record<string, string> = {
   'pos.sell': 'Bán hàng tại quầy', 'pos.discount': 'Giảm giá đơn', 'pos.cancel': 'Huỷ đơn', 'pos.shift': 'Quản lý ca',
@@ -27,6 +27,7 @@ export function SettingsPage() {
   const branches = useSql(() => getBranches(), [])
   const tables = useSql(() => getTables(branchId), [branchId])
   const audit = useSql(() => getAuditLogs(80), [])
+  const rbacRoles = useSql(() => getRoles(), [])
   const branch = branches.find((b) => b.id === branchId)
   const [form, setForm] = useState({ name: branch?.name ?? '', address: branch?.address ?? '', phone: branch?.phone ?? '', vat: (branch?.vat_rate ?? 0.08) * 100 })
 
@@ -95,22 +96,31 @@ export function SettingsPage() {
 
       {tab === 'rbac' && (
         <Card className="overflow-hidden">
-          <CardHeader title="Ma trận phân quyền" subtitle="5 vai trò × 20 quyền — menu và nút thao tác lọc theo bảng này" icon={<Shield size={16} />} />
+          <CardHeader title="Ma trận phân quyền (RBAC động)" subtitle="Đọc trực tiếp từ bảng roles — sửa ở màn hình Vai trò & phân quyền"
+            icon={<Shield size={16} />}
+            right={<Button size="sm" variant="primary" onClick={() => { location.hash = '#/roles' }}>Quản trị phân quyền</Button>} />
           <div className="max-h-[calc(100dvh-280px)] overflow-auto">
             <table className="table-base">
               <thead>
-                <tr><th>Quyền</th>{(['owner', 'manager', 'cashier', 'barista', 'accountant'] as Role[]).map((r) => <th key={r} className="text-center">{ROLE_LABEL[r]}</th>)}</tr>
+                <tr><th>Quyền</th>{rbacRoles.map((r) => <th key={r.id} className="text-center">{r.name}</th>)}</tr>
               </thead>
               <tbody>
-                {Object.keys(PERM_LABEL).map((perm) => (
-                  <tr key={perm}>
-                    <td className="text-ink-700 dark:text-ink-200">{PERM_LABEL[perm]}<span className="ml-1.5 font-mono text-[10px] text-ink-400">{perm}</span></td>
-                    {(['owner', 'manager', 'cashier', 'barista', 'accountant'] as Role[]).map((r) => (
-                      <td key={r} className="text-center">
-                        {ROLE_PERMISSIONS[r].includes(perm as any) ? <span className="text-matcha-600">✓</span> : <span className="text-ink-300">–</span>}
-                      </td>
+                {PERM_GROUPS.map((g) => (
+                  <>
+                    <tr key={g.module} className="bg-ink-50 dark:bg-ink-800">
+                      <td colSpan={rbacRoles.length + 1} className="text-[11px] font-semibold uppercase tracking-wide text-ink-500">{g.icon} {g.label}</td>
+                    </tr>
+                    {g.perms.map((perm) => (
+                      <tr key={perm.code}>
+                        <td className="text-ink-700 dark:text-ink-200">{perm.label}<span className="ml-1.5 font-mono text-[10px] text-ink-400">{perm.code}</span></td>
+                        {rbacRoles.map((r) => (
+                          <td key={r.id} className="text-center">
+                            {permsOf(r).includes(perm.code) ? <span className="text-matcha-600">✓</span> : <span className="text-ink-300">–</span>}
+                          </td>
+                        ))}
+                      </tr>
                     ))}
-                  </tr>
+                  </>
                 ))}
               </tbody>
             </table>

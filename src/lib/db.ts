@@ -6,7 +6,7 @@ import initSqlJs, { type Database, type SqlValue } from 'sql.js'
 export type { SqlValue }
 import wasmUrl from 'sql.js/dist/sql-wasm.wasm?url'
 import { seedDatabase } from './seed'
-import { SCHEMA_VERSION } from './schema'
+import { DDL, SCHEMA_VERSION } from './schema'
 
 const IDB_NAME = 'matcha-pos'
 const IDB_STORE = 'sqlite'
@@ -121,6 +121,17 @@ export async function initDatabase(onProgress?: (p: InitProgress) => void): Prom
     return { seeded: false, ms: Math.round(performance.now() - t0) }
   }
 
+  // Có dữ liệu cũ nhưng phiên bản schema thấp hơn → NÂNG CẤP TẠI CHỖ (không xoá dữ liệu người dùng)
+  if (saved) {
+    onProgress?.({ step: 'Nâng cấp cấu trúc CSDL', detail: `v${meta?.version ?? '?'} → v${SCHEMA_VERSION}` })
+    db = new SQLModule.Database(saved)
+    db.run('PRAGMA foreign_keys = ON')
+    migrate(db)
+    await persist(true)
+    onProgress?.({ step: 'Đã nâng cấp CSDL', detail: 'giữ nguyên toàn bộ dữ liệu' })
+    return { seeded: false, ms: Math.round(performance.now() - t0) }
+  }
+
   onProgress?.({ step: 'Tạo schema quan hệ', detail: '28 bảng · PK/FK · index' })
   db = new SQLModule.Database()
   await new Promise((r) => setTimeout(r, 30))
@@ -131,6 +142,18 @@ export async function initDatabase(onProgress?: (p: InitProgress) => void): Prom
   await persist(true)
   console.info('[matcha-pos] seeded', result.counts)
   return { seeded: true, ms: Math.round(performance.now() - t0) }
+}
+
+/**
+ * Nâng cấp cấu trúc tại chỗ: chạy lại DDL dạng IF NOT EXISTS (chỉ TẠO THÊM bảng/chỉ mục
+ * còn thiếu, không đụng bảng đã có) — an toàn cho dữ liệu đang chạy.
+ */
+export function migrate(target: Database = getDb()) {
+  const patch = DDL
+    .replace(/PRAGMA[^;]+;/gi, '')
+    .replace(/CREATE TABLE (\w+)/g, 'CREATE TABLE IF NOT EXISTS $1')
+    .replace(/CREATE INDEX (\w+)/g, 'CREATE INDEX IF NOT EXISTS $1')
+  target.run(patch)
 }
 
 export function getDb(): Database {

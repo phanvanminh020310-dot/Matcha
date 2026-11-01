@@ -6,6 +6,8 @@ import { CloudSyncWatcher } from './components/CloudSyncWatcher'
 import { useApp } from './store/app'
 import { initDatabase, type InitProgress } from './lib/db'
 import { clearCloudError, loadCloud, pullAll, setCloudError } from './lib/cloud'
+import { ensureRoles } from './lib/permissions'
+import { refreshRbac } from './lib/rbac'
 import { LoginPage } from './pages/Login'
 import { POSPage } from './pages/POS'
 import { KDSPage } from './pages/KDS'
@@ -23,6 +25,8 @@ import { FinancePage } from './pages/Finance'
 import { ReportsPage } from './pages/Reports'
 import { SettingsPage } from './pages/Settings'
 import { DataExplorerPage } from './pages/DataExplorer'
+import { AdminDataPage } from './pages/AdminData'
+import { RolesPage } from './pages/Roles'
 import { ErpSimulatorPage } from './pages/ErpSimulator'
 import { DeliveryPage, TrackingPage } from './pages/Delivery'
 import { PrintStudioPage } from './pages/PrintStudio'
@@ -97,6 +101,8 @@ function AppRoutes() {
       <Route path="/finance" element={<Protected><FinancePage /></Protected>} />
       <Route path="/reports" element={<Protected><ReportsPage /></Protected>} />
       <Route path="/settings" element={<Protected><SettingsPage /></Protected>} />
+      <Route path="/admin" element={<Protected><AdminDataPage /></Protected>} />
+      <Route path="/roles" element={<Protected><RolesPage /></Protected>} />
       <Route path="/data" element={<Protected><DataExplorerPage /></Protected>} />
       <Route path="/erp" element={<Protected><ErpSimulatorPage /></Protected>} />
       <Route path="*" element={<Navigate to={user ? '/pos' : '/login'} replace />} />
@@ -114,6 +120,8 @@ export default function App() {
     initDatabase((p) => { if (mounted) setProgress((prev) => [...prev, p]) })
       .then(async () => {
         if (!mounted) return
+        ensureRoles()
+        refreshRbac()
         setReady(true)
         // Nếu user đã cấu hình Postgres cloud và bật tự đồng bộ → kéo dữ liệu mới nhất về máy
         const cloud = loadCloud()

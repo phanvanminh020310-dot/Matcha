@@ -4,7 +4,7 @@
  * TABLE_META cung cấp mô tả nghiệp vụ tiếng Việt dùng cho Data Explorer + ERD.
  */
 
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
 export const DDL = /* sql */ `
 PRAGMA foreign_keys = ON;
@@ -456,6 +456,17 @@ CREATE TABLE app_meta (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+
+CREATE TABLE roles (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  description TEXT,
+  perms TEXT NOT NULL DEFAULT '',
+  is_system INTEGER NOT NULL DEFAULT 0,
+  color TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX idx_roles_created ON roles(created_at);
 `;
 
 export type ModuleKey = 'sales' | 'inventory' | 'crm' | 'hr' | 'finance' | 'system';
@@ -522,6 +533,7 @@ export const TABLES: TableMeta[] = [
   { name: 'print_templates', label: 'Mẫu in', module: 'system', icon: '🖨️', description: 'Thiết kế mẫu hoá đơn K80/K57/A5, tem ly, phiếu giao hàng (layout JSON).' },
   { name: 'print_jobs', label: 'Hàng đợi in', module: 'system', icon: '📤', description: 'Lịch sử lệnh in: mẫu, bản ghi liên quan, số bản, máy in, trạng thái.' },
   { name: 'app_meta', label: 'Cấu hình', module: 'system', icon: '⚙️', description: 'Metadata ứng dụng: phiên bản schema, seed time.' },
+  { name: 'roles', label: 'Vai trò & quyền', module: 'system', icon: '🛡️', description: 'Vai trò RBAC động: tập quyền theo module, gán cho người dùng, không cần build lại app.' },
 ];
 
 const C = (name: string, type: string, description: string, extra: Partial<ColumnMeta> = {}): ColumnMeta => ({
@@ -906,6 +918,15 @@ export const COLUMN_META: Record<string, ColumnMeta[]> = {
   app_meta: [
     C('key', 'TEXT', 'Khoá', { pk: true }),
     C('value', 'TEXT', 'Giá trị'),
+  ],
+  roles: [
+    C('id', 'TEXT', 'Mã vai trò (vd: manager)', { pk: true }),
+    C('name', 'TEXT', 'Tên hiển thị'),
+    C('description', 'TEXT', 'Mô tả quyền hạn', { nullable: true }),
+    C('perms', 'TEXT', 'Danh sách quyền, phân cách bằng dấu phẩy'),
+    C('is_system', 'INTEGER', 'Vai trò hệ thống (không xoá được)'),
+    C('color', 'TEXT', 'Màu nhận diện', { nullable: true }),
+    C('created_at', 'TEXT', 'Thời điểm tạo'),
   ],
 };
 
