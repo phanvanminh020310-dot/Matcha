@@ -3,7 +3,7 @@ import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import {
   Bell, Boxes, BookOpenCheck, ChartColumnBig, ChefHat, ChevronsLeft, ChevronsRight, CupSoda, Database, HeartHandshake,
   LayoutDashboard, LogOut, Menu, MonitorPlay, Moon, ReceiptText, Search, Settings, ShoppingCart, Sun, TicketPercent,
-  Truck, Users, Wallet, Workflow, X, Command, Store, ChevronDown, RefreshCw, CircleHelp, Sparkles,
+  Truck, Users, Wallet, Workflow, X, Command, Store, ChevronDown, RefreshCw, CircleHelp, Sparkles, Bike, Printer,
 } from 'lucide-react'
 import { useApp } from '../../store/app'
 import {navFor, type Role} from '../../lib/rbac'
@@ -15,7 +15,7 @@ import { resetDatabase } from '../../lib/db'
 
 const ICONS: Record<string, React.ComponentType<{ size?: number | string; className?: string }>> = {
   ShoppingCart, ChefHat, MonitorPlay, ReceiptText, LayoutDashboard, Boxes, Truck, CupSoda, BookOpenCheck,
-  TicketPercent, HeartHandshake, Users, ChartColumnBig, Wallet, Settings, Database, Workflow,
+  TicketPercent, HeartHandshake, Users, ChartColumnBig, Wallet, Settings, Database, Workflow, Bike, Printer,
 }
 
 export function AppShell({ children }: { children: React.ReactNode }) {

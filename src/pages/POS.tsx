@@ -11,6 +11,9 @@ import {
 } from '../lib/api'
 import { useSql } from '../hooks/useDb'
 import { useApp } from '../store/app'
+import { buildVietQR, bankByBin } from '../lib/vietqr'
+import { getBankAccounts } from '../lib/api'
+import QRCode from 'qrcode'
 import { Badge, Button, Card, ConfirmDialog, EmptyState, Field, IconButton, Input, Modal, MoneyInput, Select, Textarea, Tooltip } from '../components/ui'
 import { CHANNEL_LABEL, cx, formatVND, normalize, nowVN, TIER_LABEL, formatDateTime } from '../lib/format'
 
@@ -622,6 +625,19 @@ function PaymentModal({ total, subtotal, onClose, onConfirm }: { total: number; 
     { id: 'zalopay', label: 'ZaloPay', icon: Zap, desc: 'Ví điện tử' },
     { id: 'credit', label: 'Ghi nợ', icon: Receipt, desc: 'Cần quản lý duyệt' },
   ]
+  const { branchId, toast } = useApp()
+  const accounts = useSql(() => getBankAccounts(), [])
+  const account = accounts.find((a) => a.branch_id === branchId) ?? accounts[0]
+  const memo = useMemo(() => `MATCHA ${String(Math.floor(total / 1000)).padStart(3, '0')}K`, [total])
+  const payload = useMemo(() => (account ? buildVietQR({ bankBin: account.bank_bin, accountNo: account.account_no, amount: total, memo, merchantName: 'MATCHA HOUSE' }) : ''), [account?.bank_bin, account?.account_no, total, memo])
+  const [qrUrl, setQrUrl] = useState('')
+  useEffect(() => {
+    if (!payload) return
+    let alive = true
+    QRCode.toDataURL(payload, { width: 320, margin: 1, errorCorrectionLevel: 'M' }).then((url) => { if (alive) setQrUrl(url) }).catch(() => {})
+    return () => { alive = false }
+  }, [payload])
+
   const [method, setMethod] = useState('cash')
   const [cash, setCash] = useState(total)
   const [split, setSplit] = useState(false)
@@ -691,17 +707,33 @@ function PaymentModal({ total, subtotal, onClose, onConfirm }: { total: number; 
           )}
 
           {method === 'qr' && (
-            <div className="mt-3 flex items-center gap-3 rounded-xl border border-dashed border-ink-300 p-3 dark:border-ink-700">
-              <div className="grid h-24 w-24 shrink-0 grid-cols-6 gap-0.5 rounded-lg bg-white p-1.5">
-                {Array.from({ length: 36 }).map((_, i) => (
-                  <div key={i} className={cx('rounded-[1px]', (i * 7 + Math.floor(total / 1000)) % 3 === 0 ? 'bg-ink-900' : 'bg-transparent')} />
-                ))}
+            <div className="mt-3 rounded-xl border border-dashed border-ink-300 p-3 dark:border-ink-700">
+              <div className="flex items-start gap-3">
+                <div className="grid h-[132px] w-[132px] shrink-0 place-items-center rounded-lg bg-white p-1">
+                  {qrUrl ? <img src={qrUrl} alt="VietQR" className="h-full w-full object-contain" /> : <span className="text-[10px] text-ink-400">Đang tạo QR…</span>}
+                </div>
+                <div className="min-w-0 flex-1 text-[11.5px] leading-relaxed text-ink-600 dark:text-ink-300">
+                  <p className="font-semibold text-ink-900 dark:text-ink-50">VietQR · {account ? bankByBin(account.bank_bin)?.short : '—'}</p>
+                  <p className="truncate">STK {account?.account_no ?? '—'} · {account?.account_name ?? '—'}</p>
+                  <p>Số tiền <b>{formatVND(total)}</b></p>
+                  <p className="truncate">Nội dung: <b>{memo}</b></p>
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    <button onClick={() => { navigator.clipboard?.writeText(payload); toast({ title: 'Đã copy payload VietQR', description: 'Chuẩn EMVCo · CRC hợp lệ', tone: 'success' }) }}
+                      className="rounded border border-ink-200 px-1.5 py-0.5 text-[10.5px] dark:border-ink-700">Copy mã</button>
+                    <button onClick={() => {
+                      const a = document.createElement('a')
+                      a.href = qrUrl; a.download = `vietqr-${total}.png`; a.click()
+                    }} className="rounded border border-ink-200 px-1.5 py-0.5 text-[10.5px] dark:border-ink-700">Tải PNG</button>
+                    <span className="rounded bg-matcha-50 px-1.5 py-0.5 text-[10px] text-matcha-700 dark:bg-matcha-900/30 dark:text-matcha-300">
+                      CRC {payload.slice(-4)}
+                    </span>
+                  </div>
+                </div>
               </div>
-              <div className="text-[11.5px] leading-relaxed text-ink-500 dark:text-ink-400">
-                <p className="font-semibold text-ink-800 dark:text-ink-100">VietQR (mô phỏng)</p>
-                <p>Ngân hàng MB · STK 0901234567</p>
-                <p>Nội dung: MATCHA {Math.floor(total / 1000)}K</p>
-              </div>
+              <p className="mt-2 text-[10.5px] leading-snug text-ink-400">
+                Quét bằng app ngân hàng bất kỳ (Vietcombank, MB, Techcombank…) — mã đúng chuẩn NAPAS 247.
+                Sau khi khách chuyển, bấm xác nhận; giao dịch sẽ nằm trong mục <b>Đối soát</b> ở trang Tài chính.
+              </p>
             </div>
           )}
         </div>

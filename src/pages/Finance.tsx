@@ -6,8 +6,10 @@ import { pnl } from '../lib/analytics'
 import { useSql } from '../hooks/useDb'
 import { useApp } from '../store/app'
 import { PageHeader } from '../components/layout/AppShell'
-import { Badge, Button, Card, CardHeader, Field, Input, Modal, MoneyInput, Select, Stat, Tabs, Textarea } from '../components/ui'
-import { addDays, cx, downloadFile, formatDate, formatPercent, formatVND, todayVN, toCSV } from '../lib/format'
+import { Badge, Button, Card, CardHeader, EmptyState, Field, Input, Modal, MoneyInput, Select, Stat, Tabs, Textarea } from '../components/ui'
+import { addDays, cx, downloadFile, formatDate, formatDateTime, formatPercent, formatVND, todayVN, toCSV } from '../lib/format'
+import { getPendingBankPayments, verifyPayment } from '../lib/api'
+import { makeBankRef } from '../lib/vietqr'
 
 const CATEGORY_LABEL: Record<string, string> = {
   rent: 'Thuê mặt bằng', salary: 'Lương nhân sự', utilities: 'Điện nước', marketing: 'Marketing',
@@ -114,8 +116,77 @@ export function FinancePage() {
         </div>
       </Card>
 
+      <ReconcileCard branchId={branchId} userId={user?.id ?? 1} />
+
       {adding && <AddEntryModal onClose={() => setAdding(false)} branches={branches} />}
     </div>
+  )
+}
+
+
+/** Đối soát tiền về từ chuyển khoản / ví điện tử */
+function ReconcileCard({ branchId, userId }: { branchId: number; userId: number }) {
+  const { toast } = useApp()
+  const [onlyPending, setOnlyPending] = useState(true)
+  const rows = useSql(() => getPendingBankPayments(branchId, 80), [branchId])
+  const [verifying, setVerifying] = useState<number | null>(null)
+  const [ref, setRef] = useState('')
+  const list = onlyPending ? rows.filter((r) => !r.verified_at) : rows
+  const pendingAmount = rows.filter((r) => !r.verified_at).reduce((sum, r) => sum + r.amount, 0)
+
+  return (
+    <Card className="mt-3 overflow-hidden">
+      <CardHeader title="Đối soát chuyển khoản & ví điện tử" subtitle={`${rows.filter((r) => !r.verified_at).length} giao dịch chờ xác nhận · ${formatVND(pendingAmount)}`} icon={<Wallet size={16} />}
+        right={
+          <div className="flex items-center gap-2">
+            <label className="flex items-center gap-1 text-[11.5px] text-ink-500">
+              <input type="checkbox" checked={onlyPending} onChange={(e) => setOnlyPending(e.target.checked)} className="accent-matcha-600" /> Chỉ chờ xác nhận
+            </label>
+          </div>
+        } />
+      <div className="max-h-[360px] overflow-auto">
+        <table className="table-base">
+          <thead><tr><th>Thời gian</th><th>Đơn</th><th>Kênh</th><th className="text-right">Số tiền</th><th>Mã GD ngân hàng</th><th>Trạng thái</th><th></th></tr></thead>
+          <tbody>
+            {list.map((r) => (
+              <tr key={r.id}>
+                <td className="whitespace-nowrap text-ink-500">{formatDateTime(r.paid_at)}</td>
+                <td className="font-mono text-[11.5px]">{r.order_code}</td>
+                <td><Badge tone="blue">{r.method === 'qr' ? 'VietQR' : r.method.toUpperCase()}</Badge></td>
+                <td className="text-right font-semibold tabular-nums">{formatVND(r.amount)}</td>
+                <td className="font-mono text-[11px] text-ink-500">{r.bank_txn_ref ?? <span className="text-ink-300">—</span>}</td>
+                <td>{r.verified_at ? <Badge tone="green">đã đối soát</Badge> : <Badge tone="amber">chờ xác nhận</Badge>}</td>
+                <td className="text-right">
+                  {!r.verified_at && (
+                    <Button size="sm" variant="secondary" onClick={() => { setVerifying(r.id); setRef(makeBankRef('FT')) }}>
+                      Xác nhận tiền về
+                    </Button>
+                  )}
+                  {r.verified_at && <span className="text-[11px] text-ink-400">{formatDateTime(r.verified_at)}</span>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {list.length === 0 && <EmptyState title="Không có giao dịch cần đối soát" description="Mọi giao dịch QR/ví đã được xác nhận tiền về." />}
+      </div>
+      {verifying && (
+        <Modal open onClose={() => setVerifying(null)} title="Xác nhận tiền đã về" size="sm"
+          description="Nhập mã giao dịch trên sao kê / app ngân hàng để ghi nhận đối soát"
+          footer={<>
+            <Button onClick={() => setVerifying(null)}>Huỷ</Button>
+            <Button variant="primary" disabled={ref.trim().length < 6} onClick={() => {
+              verifyPayment(verifying, ref.trim(), userId)
+              toast({ title: 'Đã đối soát giao dịch', description: ref.trim(), tone: 'success' })
+              setVerifying(null)
+            }}>Xác nhận</Button>
+          </>}>
+          <Field label="Mã giao dịch ngân hàng" required hint="Ví dụ FT2611xxxxxx hoặc số tham chiếu trên sao kê">
+            <Input autoFocus value={ref} onChange={(e) => setRef(e.target.value.toUpperCase())} />
+          </Field>
+        </Modal>
+      )}
+    </Card>
   )
 }
 

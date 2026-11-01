@@ -5,6 +5,8 @@
  */
 import type { Database } from 'sql.js'
 import { DDL } from './schema'
+import { DEMO_PLACES, BRANCH_GEO, deliveryFeeFor, haversine } from './geo'
+import { DEFAULT_TEMPLATES } from './print'
 
 /* ------------------------------- tiện ích -------------------------------- */
 export function mulberry32(a: number) {
@@ -899,6 +901,100 @@ export function seedDatabase(db: Database): SeedResult {
     FROM inventory_txns GROUP BY branch_id, ingredient_id
   `)
 
+  /* ---- vận đơn giao hàng (map + theo dõi shipper) ---- */
+  {
+    const today = vnString(NOW).slice(0, 10)
+    const rows = db.exec(`
+      SELECT o.id, o.branch_id, o.status, o.total, o.created_at,
+             (SELECT c.name FROM customers c WHERE c.id = o.customer_id) AS customer_name
+      FROM orders o WHERE o.channel = 'delivery' ORDER BY o.created_at DESC LIMIT 48
+    `)
+    let deliveryId = 1
+    const perBranch: Record<number, number> = {}
+    if (rows[0]) {
+      rows[0].values.forEach((row, idx) => {
+        const [orderId, branchId, orderStatus, total, createdAt] = row as [number, number, string, number, string]
+        if (orderStatus === 'cancelled') return
+        const place = DEMO_PLACES[(Number(orderId) * 7) % DEMO_PLACES.length]
+        const origin = BRANCH_GEO[Number(branchId)] ?? BRANCH_GEO[1]
+        if (Math.abs(place.lat - origin.lat) > 3) return // điểm mẫu khác thành phố
+        const km = Math.round(haversine(origin, place) * 1.35 * 10) / 10
+        const fee = deliveryFeeFor(km)
+        const eta = Math.max(8, Math.round(km * 2.4 + 9))
+        const isToday = String(createdAt).slice(0, 10) === today
+        const shipperPool = USERS.map((u2, i2) => ({ ...u2, id: i2 + 1 }))
+          .filter((u2) => (u2.role === 'cashier' || u2.role === 'barista') && u2.branch === Number(branchId))
+        const shipper = shipperPool.length ? shipperPool[Number(orderId) % shipperPool.length] : null
+        // mỗi chi nhánh có sẵn vận đơn ở cả 4 trạng thái đang chạy để bảng điều phối có việc thật
+        const seq = (perBranch[Number(branchId)] = (perBranch[Number(branchId)] ?? 0) + 1)
+        const phase = seq <= 4 ? seq - 1 : 4
+        void isToday
+        void idx
+        const status = ['waiting', 'assigned', 'picked_up', 'delivering', 'delivered'][phase]
+        const cod = chance(0.25) ? Number(total) : 0
+
+        ins('deliveries', {
+          id: deliveryId, order_id: orderId, branch_id: branchId,
+          shipper_id: status === 'waiting' ? null : shipper?.id ?? null,
+          status, address: place.address, district: place.district,
+          lat: place.lat, lng: place.lng, distance_km: km, fee, cod_amount: cod,
+          eta_minutes: eta, eta_at: vnString(new Date(new Date(createdAt.replace(' ', 'T') + 'Z').getTime() + eta * 60000)),
+          customer_note: chance(0.3) ? 'Gọi trước khi giao, gửi bảo vệ toà nhà' : null,
+          proof_photo: null, rating: status === 'delivered' ? (chance(0.7) ? ri(4, 5) : ri(2, 3)) : null, fail_reason: null,
+          created_at: createdAt,
+          assigned_at: status === 'waiting' ? null : createdAt,
+          picked_at: ['picked_up', 'delivering', 'delivered'].includes(status) ? createdAt : null,
+          delivered_at: status === 'delivered' ? createdAt : null,
+        })
+        const events: [string, string][] = [
+          ['waiting', 'Đơn vào hệ thống, chờ điều phối'],
+          ...(status === 'waiting' ? [] : [['assigned', `Điều phối cho ${shipper?.name ?? 'tài xế'}`] as [string, string]]),
+          ...(['picked_up', 'delivering', 'delivered'].includes(status) ? [['picked_up', 'Tài xế đã lấy hàng tại quán'] as [string, string]] : []),
+          ...(['delivering', 'delivered'].includes(status) ? [['delivering', 'Đang trên đường tới khách'] as [string, string]] : []),
+          ...(status === 'delivered' ? [['delivered', 'Giao thành công, đã thu ' + (cod ? 'COD ' + cod.toLocaleString('vi-VN') + ' ₫' : 'đủ tiền')] as [string, string]] : []),
+        ]
+        events.forEach((ev, k) => {
+          const at = new Date(new Date(String(createdAt).replace(' ', 'T') + 'Z').getTime() + k * 5 * 60000)
+          ins('delivery_events', {
+            delivery_id: deliveryId, status: ev[0], note: ev[1],
+            lat: k === 0 ? origin.lat : place.lat - (place.lat - origin.lat) * (1 - k / Math.max(1, events.length)),
+            lng: k === 0 ? origin.lng : place.lng - (place.lng - origin.lng) * (1 - k / Math.max(1, events.length)),
+            actor: k === 0 ? 'POS' : shipper?.name ?? 'Điều phối', created_at: vnString(at),
+          })
+        })
+        deliveryId++
+      })
+    }
+  }
+
+  /* ---- tài khoản nhận tiền (VietQR) ---- */
+  ;[
+    { branch: 1, bin: '970436', bank: 'Ngân hàng TMCP Ngoại thương Việt Nam', no: '0071000123456', name: 'CONG TY MATCHA HOUSE' },
+    { branch: 2, bin: '970407', bank: 'Ngân hàng TMCP Kỹ thương Việt Nam', no: '19036789012345', name: 'CONG TY MATCHA HOUSE' },
+    { branch: 3, bin: '970422', bank: 'Ngân hàng TMCP Quân đội', no: '0367890123456', name: 'CONG TY MATCHA HOUSE' },
+  ].forEach((b3, i3) => {
+    ins('bank_accounts', { id: i3 + 1, branch_id: b3.branch, bank_bin: b3.bin, bank_name: b3.bank, account_no: b3.no, account_name: b3.name, is_default: 1 })
+  })
+
+  /* ---- mẫu in mặc định + hàng đợi in ---- */
+  DEFAULT_TEMPLATES.forEach((t, i4) => {
+    ins('print_templates', {
+      id: i4 + 1, code: t.code, name: t.name, kind: t.kind, paper: t.paper, width_mm: t.widthMm,
+      layout: JSON.stringify(t.blocks), is_default: ['receipt-k80', 'delivery-note', 'cup-label'].includes(t.code) ? 1 : 0,
+      updated_at: vnString(NOW),
+    })
+  })
+  const recentOrders = db.exec(`SELECT id, code, created_at FROM orders ORDER BY id DESC LIMIT 6`)
+  if (recentOrders[0]) {
+    recentOrders[0].values.forEach((r, i5) => {
+      ins('print_jobs', {
+        id: i5 + 1, template_code: i5 % 3 === 0 ? 'cup-label' : 'receipt-k80', ref_type: 'orders', ref_id: Number(r[0]),
+        copies: 1, status: i5 === 5 ? 'failed' : 'printed', printer: 'XP-80C (USB)', user_id: 4,
+        payload: JSON.stringify({ code: r[1] }), created_at: vnString(new Date(new Date(NOW).getTime() - i5 * 9 * 60000)),
+      })
+    })
+  }
+
   /* ---- sổ thu chi ---- */
   let finId = 1
   const fixedCosts: [string, number][] = [['rent', 55000000], ['salary', 0], ['utilities', 8500000], ['marketing', 6000000], ['other', 3200000]]
@@ -960,7 +1056,7 @@ export function seedDatabase(db: Database): SeedResult {
   db.run('COMMIT')
 
   /* ---- thống kê ---- */
-  const tableList = ['branches', 'users', 'categories', 'products', 'product_sizes', 'toppings', 'product_toppings', 'orders', 'order_items', 'order_item_toppings', 'payments', 'order_events', 'dining_tables', 'shifts', 'shift_cash_txns', 'ingredients', 'recipes', 'inventory_stock', 'inventory_txns', 'suppliers', 'purchase_orders', 'purchase_order_items', 'customers', 'vouchers', 'promotions', 'finance_entries', 'audit_logs', 'app_meta']
+  const tableList = ['branches', 'users', 'categories', 'products', 'product_sizes', 'toppings', 'product_toppings', 'orders', 'order_items', 'order_item_toppings', 'payments', 'order_events', 'dining_tables', 'shifts', 'shift_cash_txns', 'ingredients', 'recipes', 'inventory_stock', 'inventory_txns', 'suppliers', 'purchase_orders', 'purchase_order_items', 'customers', 'vouchers', 'promotions', 'finance_entries', 'audit_logs', 'deliveries', 'delivery_events', 'bank_accounts', 'print_templates', 'print_jobs', 'app_meta']
   tableList.forEach((t) => {
     const r = db.exec(`SELECT COUNT(*) FROM ${t}`)
     counts[t] = r[0]?.values[0][0] as number

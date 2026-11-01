@@ -4,7 +4,7 @@
  * TABLE_META cung cấp mô tả nghiệp vụ tiếng Việt dùng cho Data Explorer + ERD.
  */
 
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 export const DDL = /* sql */ `
 PRAGMA foreign_keys = ON;
@@ -333,7 +333,10 @@ CREATE TABLE payments (
   method TEXT NOT NULL CHECK (method IN ('cash','qr','card','momo','zalopay','credit')),
   amount INTEGER NOT NULL,
   paid_at TEXT NOT NULL,
-  ref TEXT
+  ref TEXT,
+  bank_txn_ref TEXT,
+  verified_at TEXT,
+  verified_by INTEGER REFERENCES users(id)
 );
 CREATE INDEX idx_payments_order ON payments(order_id);
 CREATE INDEX idx_payments_method ON payments(method);
@@ -374,6 +377,80 @@ CREATE TABLE audit_logs (
   created_at TEXT NOT NULL
 );
 CREATE INDEX idx_audit_time ON audit_logs(created_at DESC);
+
+CREATE TABLE deliveries (
+  id INTEGER PRIMARY KEY,
+  order_id INTEGER NOT NULL UNIQUE REFERENCES orders(id),
+  branch_id INTEGER NOT NULL REFERENCES branches(id),
+  shipper_id INTEGER REFERENCES users(id),
+  status TEXT NOT NULL CHECK (status IN ('waiting','assigned','picked_up','delivering','delivered','failed','cancelled')),
+  address TEXT NOT NULL,
+  district TEXT,
+  lat REAL, lng REAL,
+  distance_km REAL NOT NULL DEFAULT 0,
+  fee INTEGER NOT NULL DEFAULT 0,
+  cod_amount INTEGER NOT NULL DEFAULT 0,
+  eta_minutes INTEGER,
+  eta_at TEXT,
+  customer_note TEXT,
+  proof_photo TEXT,
+  rating INTEGER,
+  fail_reason TEXT,
+  created_at TEXT NOT NULL,
+  assigned_at TEXT,
+  picked_at TEXT,
+  delivered_at TEXT
+);
+CREATE INDEX idx_deliveries_status ON deliveries(status);
+CREATE INDEX idx_deliveries_branch ON deliveries(branch_id);
+CREATE INDEX idx_deliveries_shipper ON deliveries(shipper_id);
+
+CREATE TABLE delivery_events (
+  id INTEGER PRIMARY KEY,
+  delivery_id INTEGER NOT NULL REFERENCES deliveries(id) ON DELETE CASCADE,
+  status TEXT NOT NULL,
+  note TEXT,
+  lat REAL, lng REAL,
+  actor TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX idx_delivery_events_delivery ON delivery_events(delivery_id);
+
+CREATE TABLE bank_accounts (
+  id INTEGER PRIMARY KEY,
+  branch_id INTEGER REFERENCES branches(id),
+  bank_bin TEXT NOT NULL,
+  bank_name TEXT NOT NULL,
+  account_no TEXT NOT NULL,
+  account_name TEXT NOT NULL,
+  is_default INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE TABLE print_templates (
+  id INTEGER PRIMARY KEY,
+  code TEXT NOT NULL UNIQUE,
+  name TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('receipt','cup_label','delivery_note','stocktake','price_tag','shift_report')),
+  paper TEXT NOT NULL CHECK (paper IN ('k80','k57','a5','a4')),
+  width_mm INTEGER NOT NULL,
+  layout TEXT NOT NULL,
+  is_default INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE print_jobs (
+  id INTEGER PRIMARY KEY,
+  template_code TEXT NOT NULL,
+  ref_type TEXT,
+  ref_id INTEGER,
+  copies INTEGER NOT NULL DEFAULT 1,
+  status TEXT NOT NULL CHECK (status IN ('queued','printed','failed','reprinted')),
+  printer TEXT,
+  user_id INTEGER REFERENCES users(id),
+  payload TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX idx_print_jobs_created ON print_jobs(created_at);
 
 CREATE TABLE app_meta (
   key TEXT PRIMARY KEY,
@@ -439,6 +516,11 @@ export const TABLES: TableMeta[] = [
   { name: 'promotions', label: 'Khuyến mãi', module: 'crm', icon: '🎉', description: 'CTKM tự động: giờ vàng, giảm theo hạng, combo, BOGO.' },
   { name: 'finance_entries', label: 'Sổ thu chi', module: 'finance', icon: '📊', description: 'Bút toán thu/chi: mặt bằng, điện nước, lương, nhập hàng…' },
   { name: 'audit_logs', label: 'Nhật ký', module: 'system', icon: '🔍', description: 'Audit log các thao tác ghi dữ liệu quan trọng.' },
+  { name: 'deliveries', label: 'Vận đơn giao hàng', module: 'sales', icon: '🛵', description: 'Vận đơn: shipper, toạ độ, khoảng cách, phí ship, COD, ETA, bằng chứng giao.' },
+  { name: 'delivery_events', label: 'Hành trình giao', module: 'sales', icon: '📍', description: 'Vết trạng thái giao hàng kèm toạ độ — nguồn cho trang theo dõi của khách.' },
+  { name: 'bank_accounts', label: 'Tài khoản nhận tiền', module: 'finance', icon: '🏦', description: 'Số tài khoản ngân hàng dùng để sinh VietQR (chuẩn EMVCo).' },
+  { name: 'print_templates', label: 'Mẫu in', module: 'system', icon: '🖨️', description: 'Thiết kế mẫu hoá đơn K80/K57/A5, tem ly, phiếu giao hàng (layout JSON).' },
+  { name: 'print_jobs', label: 'Hàng đợi in', module: 'system', icon: '📤', description: 'Lịch sử lệnh in: mẫu, bản ghi liên quan, số bản, máy in, trạng thái.' },
   { name: 'app_meta', label: 'Cấu hình', module: 'system', icon: '⚙️', description: 'Metadata ứng dụng: phiên bản schema, seed time.' },
 ];
 
@@ -753,6 +835,72 @@ export const COLUMN_META: Record<string, ColumnMeta[]> = {
     C('entity_id', 'TEXT', 'Id bản ghi'),
     C('before_value', 'TEXT', 'Giá trị trước (JSON)', { nullable: true }),
     C('after_value', 'TEXT', 'Giá trị sau (JSON)', { nullable: true }),
+    C('created_at', 'TEXT', 'Thời điểm'),
+  ],
+  deliveries: [
+    C('id', 'INTEGER', 'Khoá chính', { pk: true }),
+    C('order_id', 'INTEGER', 'Đơn hàng được giao', { fk: { table: 'orders', column: 'id' }, unique: true }),
+    C('branch_id', 'INTEGER', 'Chi nhánh xuất phát', { fk: { table: 'branches', column: 'id' }, indexed: true }),
+    C('shipper_id', 'INTEGER', 'Tài xế giao hàng', { fk: { table: 'users', column: 'id' }, nullable: true, indexed: true }),
+    C('status', 'TEXT', 'waiting → assigned → picked_up → delivering → delivered / failed'),
+    C('address', 'TEXT', 'Địa chỉ giao (đã geocode)'),
+    C('district', 'TEXT', 'Quận/khu vực giao', { nullable: true }),
+    C('lat', 'REAL', 'Vĩ độ điểm giao', { nullable: true }),
+    C('lng', 'REAL', 'Kinh độ điểm giao', { nullable: true }),
+    C('distance_km', 'REAL', 'Khoảng cách tuyến đường (OSRM)'),
+    C('fee', 'INTEGER', 'Phí giao hàng thu khách'),
+    C('cod_amount', 'INTEGER', 'Tiền thu hộ (COD)'),
+    C('eta_minutes', 'INTEGER', 'Thời gian giao dự kiến (phút)', { nullable: true }),
+    C('eta_at', 'TEXT', 'Thời điểm dự kiến giao xong', { nullable: true }),
+    C('customer_note', 'TEXT', 'Ghi chú của khách', { nullable: true }),
+    C('proof_photo', 'TEXT', 'Ảnh xác nhận giao (data URL)', { nullable: true }),
+    C('rating', 'INTEGER', 'Khách đánh giá 1–5 sao', { nullable: true }),
+    C('fail_reason', 'TEXT', 'Lý do giao thất bại', { nullable: true }),
+    C('created_at', 'TEXT', 'Thời điểm tạo vận đơn'),
+    C('assigned_at', 'TEXT', 'Thời điểm gán shipper', { nullable: true }),
+    C('picked_at', 'TEXT', 'Thời điểm lấy hàng', { nullable: true }),
+    C('delivered_at', 'TEXT', 'Thời điểm giao thành công', { nullable: true }),
+  ],
+  delivery_events: [
+    C('id', 'INTEGER', 'Khoá chính', { pk: true }),
+    C('delivery_id', 'INTEGER', 'Vận đơn', { fk: { table: 'deliveries', column: 'id' }, indexed: true }),
+    C('status', 'TEXT', 'Trạng thái tại thời điểm ghi'),
+    C('note', 'TEXT', 'Diễn giải', { nullable: true }),
+    C('lat', 'REAL', 'Vĩ độ lúc ghi nhận', { nullable: true }),
+    C('lng', 'REAL', 'Kinh độ lúc ghi nhận', { nullable: true }),
+    C('actor', 'TEXT', 'Người/hệ thống ghi nhận', { nullable: true }),
+    C('created_at', 'TEXT', 'Thời điểm'),
+  ],
+  bank_accounts: [
+    C('id', 'INTEGER', 'Khoá chính', { pk: true }),
+    C('branch_id', 'INTEGER', 'Chi nhánh', { fk: { table: 'branches', column: 'id' }, nullable: true }),
+    C('bank_bin', 'TEXT', 'Mã BIN ngân hàng (NAPAS)'),
+    C('bank_name', 'TEXT', 'Tên ngân hàng'),
+    C('account_no', 'TEXT', 'Số tài khoản nhận tiền'),
+    C('account_name', 'TEXT', 'Chủ tài khoản'),
+    C('is_default', 'INTEGER', 'Dùng mặc định'),
+  ],
+  print_templates: [
+    C('id', 'INTEGER', 'Khoá chính', { pk: true }),
+    C('code', 'TEXT', 'Mã mẫu', { unique: true }),
+    C('name', 'TEXT', 'Tên mẫu in'),
+    C('kind', 'TEXT', 'Loại: receipt, cup_label, delivery_note, stocktake, price_tag, shift_report'),
+    C('paper', 'TEXT', 'Khổ giấy k80/k57/a5/a4'),
+    C('width_mm', 'INTEGER', 'Chiều rộng (mm)'),
+    C('layout', 'TEXT', 'JSON phần tử thiết kế'),
+    C('is_default', 'INTEGER', 'Mẫu mặc định cho loại này'),
+    C('updated_at', 'TEXT', 'Cập nhật lần cuối'),
+  ],
+  print_jobs: [
+    C('id', 'INTEGER', 'Khoá chính', { pk: true }),
+    C('template_code', 'TEXT', 'Mẫu được in', { indexed: true }),
+    C('ref_type', 'TEXT', 'Bảng tham chiếu', { nullable: true }),
+    C('ref_id', 'INTEGER', 'Bản ghi tham chiếu', { nullable: true }),
+    C('copies', 'INTEGER', 'Số bản in'),
+    C('status', 'TEXT', 'queued / printed / failed / reprinted'),
+    C('printer', 'TEXT', 'Máy in nhận lệnh', { nullable: true }),
+    C('user_id', 'INTEGER', 'Người bấm in', { fk: { table: 'users', column: 'id' }, nullable: true }),
+    C('payload', 'TEXT', 'Dữ liệu đã in (JSON)', { nullable: true }),
     C('created_at', 'TEXT', 'Thời điểm'),
   ],
   app_meta: [

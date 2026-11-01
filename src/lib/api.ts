@@ -1,6 +1,6 @@
 /** Tầng nghiệp vụ: mọi thao tác đọc/ghi dữ liệu của app đi qua đây. */
 import { all, one, run, runMany, scalar, lastInsertId, getDb } from './db'
-import { nowVN, todayVN } from './format'
+import { nowVN, parseVN, todayVN } from './format'
 import type { Role } from './rbac'
 
 /* ============================== TYPES ================================== */
@@ -754,4 +754,237 @@ export function salesByStaff(from: string, to: string) {
      FROM users u LEFT JOIN orders o ON o.cashier_id = u.id AND o.status != 'cancelled' AND date(o.created_at) BETWEEN ? AND ?
      GROUP BY u.id ORDER BY revenue DESC`, [from, to],
   )
+}
+
+/* ============================ GIAO HÀNG (SHIP) ============================ */
+export interface DeliveryRow {
+  id: number; order_id: number; branch_id: number; shipper_id: number | null
+  status: 'waiting' | 'assigned' | 'picked_up' | 'delivering' | 'delivered' | 'failed' | 'cancelled'
+  address: string; district: string | null; lat: number | null; lng: number | null
+  distance_km: number; fee: number; cod_amount: number; eta_minutes: number | null; eta_at: string | null
+  customer_note: string | null; proof_photo: string | null; rating: number | null; fail_reason: string | null
+  created_at: string; assigned_at: string | null; picked_at: string | null; delivered_at: string | null
+  code?: string; order_code?: string; total?: number; channel?: string
+  shipper_name?: string; shipper_phone?: string; customer_name?: string; customer_phone?: string
+  branch_name?: string; branch_address?: string; item_count?: number
+}
+
+export const DELIVERY_STATUS: Record<string, { label: string; tone: 'gray' | 'amber' | 'blue' | 'green' | 'red'; icon: string }> = {
+  waiting: { label: 'Chờ tài xế', tone: 'amber', icon: '⏳' },
+  assigned: { label: 'Đã gán tài xế', tone: 'blue', icon: '🧑‍✈️' },
+  picked_up: { label: 'Đã lấy hàng', tone: 'blue', icon: '📦' },
+  delivering: { label: 'Đang giao', tone: 'blue', icon: '🛵' },
+  delivered: { label: 'Đã giao', tone: 'green', icon: '✅' },
+  failed: { label: 'Giao thất bại', tone: 'red', icon: '⚠️' },
+  cancelled: { label: 'Đã huỷ', tone: 'gray', icon: '✖️' },
+}
+
+const DELIVERY_SELECT = `
+  SELECT d.*, 'VD' || printf('%06d', d.id) AS code, o.code AS order_code, o.total, o.channel,
+         u.name AS shipper_name, u.phone AS shipper_phone,
+         c.name AS customer_name, c.phone AS customer_phone,
+         b.name AS branch_name, b.address AS branch_address,
+         (SELECT COUNT(*) FROM order_items oi WHERE oi.order_id = d.order_id) AS item_count
+  FROM deliveries d
+  JOIN orders o ON o.id = d.order_id
+  LEFT JOIN users u ON u.id = d.shipper_id
+  LEFT JOIN customers c ON c.id = o.customer_id
+  LEFT JOIN branches b ON b.id = d.branch_id`
+
+export function getDeliveries(filters: { branchId?: number | 'all'; status?: string; shipperId?: number; limit?: number } = {}) {
+  const where: string[] = []
+  const params: any[] = []
+  if (filters.branchId && filters.branchId !== 'all') { where.push('d.branch_id = ?'); params.push(filters.branchId) }
+  if (filters.status && filters.status !== 'all') { where.push('d.status = ?'); params.push(filters.status) }
+  if (filters.shipperId) { where.push('d.shipper_id = ?'); params.push(filters.shipperId) }
+  return all<DeliveryRow>(`${DELIVERY_SELECT} ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY d.id DESC LIMIT ?`,
+    [...params, filters.limit ?? 120])
+}
+
+export function getDelivery(id: number) {
+  return one<DeliveryRow>(`${DELIVERY_SELECT} WHERE d.id = ?`, [id])
+}
+
+export function getDeliveryByOrder(orderId: number) {
+  return one<DeliveryRow>(`${DELIVERY_SELECT} WHERE d.order_id = ?`, [orderId])
+}
+
+export function getDeliveryEvents(deliveryId: number) {
+  return all<{ id: number; status: string; note: string | null; lat: number | null; lng: number | null; actor: string | null; created_at: string }>(
+    'SELECT * FROM delivery_events WHERE delivery_id = ? ORDER BY id', [deliveryId],
+  )
+}
+
+/** Tạo vận đơn cho một đơn đã có (đơn giao hàng). */
+export function createDelivery(input: {
+  orderId: number; branchId: number; address: string; district?: string | null
+  lat?: number | null; lng?: number | null; distanceKm: number; fee: number; codAmount?: number
+  etaMinutes?: number | null; note?: string | null; userId: number
+}) {
+  const exists = one<{ id: number }>('SELECT id FROM deliveries WHERE order_id = ?', [input.orderId])
+  if (exists) return exists.id
+  const id = (scalar<number>('SELECT COALESCE(MAX(id),0)+1 FROM deliveries') ?? 1)
+  const at = nowVN()
+  const etaAt = input.etaMinutes ? addMinutesVN(at, input.etaMinutes) : null
+  runMany([
+    {
+      sql: `INSERT INTO deliveries (id, order_id, branch_id, shipper_id, status, address, district, lat, lng, distance_km, fee, cod_amount,
+              eta_minutes, eta_at, customer_note, created_at) VALUES (?,?,?,NULL,'waiting',?,?,?,?,?,?,?,?,?,?,?)`,
+      params: [id, input.orderId, input.branchId, input.address, input.district ?? null, input.lat ?? null, input.lng ?? null,
+        input.distanceKm, input.fee, input.codAmount ?? 0, input.etaMinutes ?? null, etaAt, input.note ?? null, at],
+    },
+    {
+      sql: `INSERT INTO delivery_events (delivery_id, status, note, actor, created_at) VALUES (?,?,?,?,?)`,
+      params: [id, 'waiting', 'Vận đơn được tạo, chờ điều phối tài xế', 'POS', at],
+    },
+  ])
+  return id
+}
+
+export function addMinutesVN(at: string, minutes: number) {
+  const d = parseVN(at)
+  if (!d) return at
+  d.setMinutes(d.getMinutes() + minutes)
+  return nowVNOffset(d)
+}
+
+function nowVNOffset(d: Date) {
+  const p = (n: number) => String(n).padStart(2, '0')
+  const shifted = new Date(d.getTime() + 7 * 3600 * 1000)
+  return `${shifted.getUTCFullYear()}-${p(shifted.getUTCMonth() + 1)}-${p(shifted.getUTCDate())} ${p(shifted.getUTCHours())}:${p(shifted.getUTCMinutes())}:${p(shifted.getUTCSeconds())}`
+}
+
+/** Gán / đổi tài xế. */
+export function assignShipper(deliveryId: number, shipperId: number, userId: number) {
+  const at = nowVN()
+  const shipper = one<{ name: string }>('SELECT name FROM users WHERE id = ?', [shipperId])
+  runMany([
+    { sql: `UPDATE deliveries SET shipper_id = ?, status = CASE WHEN status = 'waiting' THEN 'assigned' ELSE status END, assigned_at = ? WHERE id = ?`, params: [shipperId, at, deliveryId] },
+    { sql: 'INSERT INTO delivery_events (delivery_id, status, note, actor, created_at) VALUES (?,?,?,?,?)', params: [deliveryId, 'assigned', `Gán tài xế ${shipper?.name ?? shipperId}`, `user:${userId}`, at] },
+    { sql: `INSERT INTO audit_logs (user_id, action, entity, entity_id, after_value, created_at) VALUES (?,?,?,?,?,?)`, params: [userId, 'assign_shipper', 'deliveries', String(deliveryId), JSON.stringify({ shipperId }), at] },
+  ])
+}
+
+/** Chuyển trạng thái vận đơn (có toạ độ để vẽ hành trình thật). */
+export function updateDeliveryStatus(deliveryId: number, status: DeliveryRow['status'], opts: {
+  lat?: number | null; lng?: number | null; note?: string | null; actor?: string; proofPhoto?: string | null; failReason?: string | null
+} = {}) {
+  const at = nowVN()
+  const sets: string[] = ['status = ?']
+  const params: any[] = [status]
+  if (status === 'picked_up') { sets.push('picked_at = ?'); params.push(at) }
+  if (status === 'delivered') { sets.push('delivered_at = ?'); params.push(at) }
+  if (opts.proofPhoto) { sets.push('proof_photo = ?'); params.push(opts.proofPhoto) }
+  if (opts.failReason) { sets.push('fail_reason = ?'); params.push(opts.failReason) }
+  runMany([
+    { sql: `UPDATE deliveries SET ${sets.join(', ')} WHERE id = ?`, params: [...params, deliveryId] },
+    {
+      sql: 'INSERT INTO delivery_events (delivery_id, status, note, lat, lng, actor, created_at) VALUES (?,?,?,?,?,?,?)',
+      params: [deliveryId, status, opts.note ?? DELIVERY_STATUS[status]?.label ?? status, opts.lat ?? null, opts.lng ?? null, opts.actor ?? 'system', at],
+    },
+  ])
+  if (status === 'delivered') {
+    const d = one<{ order_id: number }>('SELECT order_id FROM deliveries WHERE id = ?', [deliveryId])
+    if (d) run(`UPDATE orders SET status = 'completed', completed_at = ? WHERE id = ? AND status != 'cancelled'`, [at, d.order_id])
+  }
+}
+
+export function rateDelivery(deliveryId: number, rating: number) {
+  run('UPDATE deliveries SET rating = ? WHERE id = ?', [Math.max(1, Math.min(5, rating)), deliveryId])
+}
+
+export function deliveryStats(branchId?: number | 'all') {
+  const cond = branchId && branchId !== 'all' ? 'WHERE branch_id = ?' : ''
+  const params = branchId && branchId !== 'all' ? [branchId] : []
+  const rows = all<{ status: string; n: number }>(`SELECT status, COUNT(*) AS n FROM deliveries ${cond} GROUP BY status`, params)
+  const map = Object.fromEntries(rows.map((r) => [r.status, Number(r.n)]))
+  const revenue = scalar<number>(`SELECT COALESCE(SUM(total),0) FROM orders WHERE channel = 'delivery' AND status != 'cancelled' AND date(created_at) = ?`, [todayVN()]) ?? 0
+  return {
+    waiting: map.waiting ?? 0, assigned: map.assigned ?? 0, picked_up: map.picked_up ?? 0,
+    delivering: map.delivering ?? 0, delivered: map.delivered ?? 0, failed: map.failed ?? 0,
+    active: (map.waiting ?? 0) + (map.assigned ?? 0) + (map.picked_up ?? 0) + (map.delivering ?? 0),
+    revenueToday: revenue,
+  }
+}
+
+/** Danh sách tài xế (nhân viên đang hoạt động có thể nhận giao). */
+export const getShippers = () =>
+  all<{ id: number; name: string; phone: string | null; role: string; branch_id: number | null; avatar_emoji: string }>(
+    `SELECT id, name, phone, role, branch_id, avatar_emoji FROM users WHERE is_active = 1 AND role IN ('cashier','barista','manager') ORDER BY branch_id, name`)
+
+/* ============================ IN ẤN ============================ */
+export function getPrintTemplates() {
+  return all<{ id: number; code: string; name: string; kind: string; paper: string; width_mm: number; layout: string; is_default: number; updated_at: string }>(
+    'SELECT * FROM print_templates ORDER BY kind, id')
+}
+
+export function savePrintTemplate(t: { code: string; name: string; kind: string; paper: string; widthMm: number; blocks: unknown[] }) {
+  const exists = one<{ id: number }>('SELECT id FROM print_templates WHERE code = ?', [t.code])
+  const at = nowVN()
+  if (exists) {
+    run('UPDATE print_templates SET name = ?, kind = ?, paper = ?, width_mm = ?, layout = ?, updated_at = ? WHERE code = ?',
+      [t.name, t.kind, t.paper, t.widthMm, JSON.stringify(t.blocks), at, t.code])
+  } else {
+    run('INSERT INTO print_templates (code, name, kind, paper, width_mm, layout, is_default, updated_at) VALUES (?,?,?,?,?,?,0,?)',
+      [t.code, t.name, t.kind, t.paper, t.widthMm, JSON.stringify(t.blocks), at])
+  }
+}
+
+export function setDefaultTemplate(code: string) {
+  const t = one<{ kind: string }>('SELECT kind FROM print_templates WHERE code = ?', [code])
+  if (!t) return
+  runMany([
+    { sql: 'UPDATE print_templates SET is_default = 0 WHERE kind = ?', params: [t.kind] },
+    { sql: 'UPDATE print_templates SET is_default = 1 WHERE code = ?', params: [code] },
+  ])
+}
+
+export function deletePrintTemplate(code: string) {
+  run('DELETE FROM print_templates WHERE code = ? AND is_default = 0', [code])
+}
+
+export function logPrintJob(job: { templateCode: string; refType?: string | null; refId?: number | null; copies: number; status: string; printer?: string | null; userId?: number | null; payload?: string | null }) {
+  run('INSERT INTO print_jobs (template_code, ref_type, ref_id, copies, status, printer, user_id, payload, created_at) VALUES (?,?,?,?,?,?,?,?,?)',
+    [job.templateCode, job.refType ?? null, job.refId ?? null, job.copies, job.status, job.printer ?? null, job.userId ?? null, job.payload ?? null, nowVN()])
+}
+
+export const getPrintJobs = (limit = 60) =>
+  all<{ id: number; template_code: string; ref_type: string | null; ref_id: number | null; copies: number; status: string; printer: string | null; created_at: string; user_name: string | null }>(
+    `SELECT p.*, u.name AS user_name FROM print_jobs p LEFT JOIN users u ON u.id = p.user_id ORDER BY p.id DESC LIMIT ?`, [limit])
+
+/* ============================ NGÂN HÀNG / VIETQR ============================ */
+export const getBankAccounts = () =>
+  all<{ id: number; branch_id: number | null; bank_bin: string; bank_name: string; account_no: string; account_name: string; is_default: number; branch_name?: string }>(
+    `SELECT a.*, b.name AS branch_name FROM bank_accounts a LEFT JOIN branches b ON b.id = a.branch_id ORDER BY a.id`)
+
+export function saveBankAccount(input: { branchId: number | null; bankBin: string; bankName: string; accountNo: string; accountName: string; id?: number }) {
+  if (input.id) {
+    run('UPDATE bank_accounts SET branch_id = ?, bank_bin = ?, bank_name = ?, account_no = ?, account_name = ? WHERE id = ?',
+      [input.branchId, input.bankBin, input.bankName, input.accountNo, input.accountName, input.id])
+  } else {
+    run('INSERT INTO bank_accounts (branch_id, bank_bin, bank_name, account_no, account_name, is_default) VALUES (?,?,?,?,?,1)',
+      [input.branchId, input.bankBin, input.bankName, input.accountNo, input.accountName])
+  }
+}
+
+/** Giao dịch QR chờ đối soát (đã ghi nhận thanh toán nhưng chưa xác nhận tiền về). */
+export function getPendingBankPayments(branchId?: number | 'all', limit = 60) {
+  const cond = branchId && branchId !== 'all' ? 'AND o.branch_id = ?' : ''
+  const params = branchId && branchId !== 'all' ? [branchId] : []
+  return all<{ id: number; order_id: number; order_code: string; method: string; amount: number; paid_at: string; ref: string | null; bank_txn_ref: string | null; verified_at: string | null; customer_name: string | null; branch_name: string }>(
+    `SELECT p.id, p.order_id, o.code AS order_code, p.method, p.amount, p.paid_at, p.ref, p.bank_txn_ref, p.verified_at,
+            c.name AS customer_name, b.name AS branch_name
+     FROM payments p JOIN orders o ON o.id = p.order_id LEFT JOIN customers c ON c.id = o.customer_id
+     JOIN branches b ON b.id = o.branch_id
+     WHERE p.method IN ('qr','momo','zalopay','card') ${cond}
+     ORDER BY p.verified_at IS NOT NULL, p.id DESC LIMIT ?`, [...params, limit])
+}
+
+export function verifyPayment(paymentId: number, bankTxnRef: string, userId: number) {
+  const at = nowVN()
+  runMany([
+    { sql: 'UPDATE payments SET bank_txn_ref = ?, verified_at = ?, verified_by = ? WHERE id = ?', params: [bankTxnRef, at, userId, paymentId] },
+    { sql: `INSERT INTO audit_logs (user_id, action, entity, entity_id, after_value, created_at) VALUES (?,?,?,?,?,?)`,
+      params: [userId, 'verify_payment', 'payments', String(paymentId), JSON.stringify({ bankTxnRef }), at] },
+  ])
 }

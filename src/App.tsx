@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { HashRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
+import { HashRouter, Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom'
 import { AppShell } from './components/layout/AppShell'
 import { Toaster } from './components/ui'
 import { useApp } from './store/app'
@@ -22,6 +22,8 @@ import { ReportsPage } from './pages/Reports'
 import { SettingsPage } from './pages/Settings'
 import { DataExplorerPage } from './pages/DataExplorer'
 import { ErpSimulatorPage } from './pages/ErpSimulator'
+import { DeliveryPage, TrackingPage } from './pages/Delivery'
+import { PrintStudioPage } from './pages/PrintStudio'
 
 /* ------------------------------ Boot screen ----------------------------- */
 function BootScreen({ progress }: { progress: InitProgress[] }) {
@@ -58,6 +60,11 @@ function BootScreen({ progress }: { progress: InitProgress[] }) {
   )
 }
 
+function TrackRoute() {
+  const { code } = useParams<{ code: string }>()
+  return <TrackingPage code={code ?? ''} />
+}
+
 function Protected({ children }: { children: React.ReactNode }) {
   const user = useApp((s) => s.user)
   const location = useLocation()
@@ -71,6 +78,7 @@ function AppRoutes() {
     <Routes>
       <Route path="/login" element={user ? <Navigate to="/pos" replace /> : <LoginPage />} />
       <Route path="/display" element={<DisplayPage />} />
+      <Route path="/track/:code" element={<TrackRoute />} />
       <Route path="/pos" element={<Protected><POSPage /></Protected>} />
       <Route path="/kds" element={<Protected><KDSPage /></Protected>} />
       <Route path="/dashboard" element={<Protected><DashboardPage /></Protected>} />
@@ -79,6 +87,8 @@ function AppRoutes() {
       <Route path="/recipes" element={<Protected><RecipesPage /></Protected>} />
       <Route path="/inventory" element={<Protected><InventoryPage /></Protected>} />
       <Route path="/purchasing" element={<Protected><PurchasingPage /></Protected>} />
+      <Route path="/delivery" element={<Protected><DeliveryPage /></Protected>} />
+      <Route path="/print" element={<Protected><PrintStudioPage /></Protected>} />
       <Route path="/customers" element={<Protected><CustomersPage /></Protected>} />
       <Route path="/promotions" element={<Protected><PromotionsPage /></Protected>} />
       <Route path="/staff" element={<Protected><StaffPage /></Protected>} />

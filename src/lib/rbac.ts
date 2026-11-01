@@ -16,6 +16,8 @@ export type Permission =
   | 'bo.customers'
   | 'bo.promotions'
   | 'bo.orders'
+  | 'bo.delivery'
+  | 'bo.print'
   | 'bo.staff'
   | 'bo.finance'
   | 'bo.reports'
@@ -26,7 +28,7 @@ export type Permission =
 const ALL: Permission[] = [
   'pos.sell', 'pos.discount', 'pos.cancel', 'pos.shift', 'kds.view', 'kds.update',
   'bo.dashboard', 'bo.products', 'bo.recipes', 'bo.inventory', 'bo.purchasing', 'bo.customers',
-  'bo.promotions', 'bo.orders', 'bo.staff', 'bo.finance', 'bo.reports', 'bo.settings', 'admin.data', 'admin.erp',
+  'bo.promotions', 'bo.orders', 'bo.delivery', 'bo.print', 'bo.staff', 'bo.finance', 'bo.reports', 'bo.settings', 'admin.data', 'admin.erp',
 ]
 
 export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
@@ -34,11 +36,11 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
   manager: [
     'pos.sell', 'pos.discount', 'pos.cancel', 'pos.shift', 'kds.view', 'kds.update',
     'bo.dashboard', 'bo.products', 'bo.recipes', 'bo.inventory', 'bo.purchasing', 'bo.customers',
-    'bo.promotions', 'bo.orders', 'bo.staff', 'bo.reports', 'bo.settings', 'admin.erp',
+    'bo.promotions', 'bo.orders', 'bo.delivery', 'bo.print', 'bo.staff', 'bo.reports', 'bo.settings', 'admin.erp',
   ],
-  cashier: ['pos.sell', 'pos.discount', 'pos.shift', 'kds.view', 'bo.orders', 'bo.customers'],
-  barista: ['kds.view', 'kds.update', 'bo.orders'],
-  accountant: ['bo.dashboard', 'bo.inventory', 'bo.purchasing', 'bo.finance', 'bo.reports', 'bo.orders', 'bo.customers'],
+  cashier: ['pos.sell', 'pos.discount', 'pos.shift', 'kds.view', 'bo.orders', 'bo.delivery', 'bo.print', 'bo.customers'],
+  barista: ['kds.view', 'kds.update', 'bo.orders', 'bo.delivery'],
+  accountant: ['bo.dashboard', 'bo.inventory', 'bo.purchasing', 'bo.finance', 'bo.reports', 'bo.orders', 'bo.delivery', 'bo.print', 'bo.customers'],
 }
 
 export function can(role: Role | undefined, perm: Permission): boolean {
@@ -60,6 +62,7 @@ export const NAV: NavItem[] = [
   { to: '/kds', label: 'Màn hình bếp (KDS)', icon: 'ChefHat', perm: 'kds.view', group: 'Bán hàng', badge: 'kds' },
   { to: '/display', label: 'Màn hình gọi số', icon: 'MonitorPlay', perm: 'pos.sell', group: 'Bán hàng' },
   { to: '/orders', label: 'Đơn hàng', icon: 'ReceiptText', perm: 'bo.orders', group: 'Bán hàng' },
+  { to: '/delivery', label: 'Giao hàng & điều phối', icon: 'Bike', perm: 'bo.delivery', group: 'Bán hàng' },
 
   { to: '/dashboard', label: 'Tổng quan', icon: 'LayoutDashboard', perm: 'bo.dashboard', group: 'Vận hành' },
   { to: '/inventory', label: 'Kho & nguyên liệu', icon: 'Boxes', perm: 'bo.inventory', group: 'Vận hành' },
@@ -74,6 +77,7 @@ export const NAV: NavItem[] = [
   { to: '/finance', label: 'Tài chính', icon: 'Wallet', perm: 'bo.finance', group: 'Quản trị' },
   { to: '/settings', label: 'Cài đặt', icon: 'Settings', perm: 'bo.settings', group: 'Quản trị' },
 
+  { to: '/print', label: 'Studio in ấn', icon: 'Printer', perm: 'bo.print', group: 'Hệ thống' },
   { to: '/data', label: 'Data Explorer', icon: 'Database', perm: 'admin.data', group: 'Hệ thống' },
   { to: '/erp', label: 'ERP Simulator', icon: 'Workflow', perm: 'admin.erp', group: 'Hệ thống' },
 ]

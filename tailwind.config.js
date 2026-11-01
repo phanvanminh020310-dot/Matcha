@@ -23,7 +23,7 @@ export default {
         },
       },
       fontFamily: {
-        sans: ['"Be Vietnam Pro"', 'Inter', 'system-ui', '-apple-system', 'Segoe UI', 'sans-serif'],
+        sans: ['"Be Vietnam Pro"', '"Matcha Emoji"', 'Inter', 'system-ui', '-apple-system', 'Segoe UI', 'sans-serif'],
         mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'Consolas', 'monospace'],
       },
       borderRadius: { xl: '0.875rem', '2xl': '1.125rem', '3xl': '1.5rem' },
