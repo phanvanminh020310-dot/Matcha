@@ -32,15 +32,15 @@ export function ConnectionBanner() {
     const t = loadTurso()
     const c = loadCloud()
     if (tursoReady(t)) {
-      return { connected: true, kind: 'Turso', host: t.url.replace(/^(libsql|turso|https?):\/\//i, '').split('/')[0] }
+      return { connected: true, off: !t.enabled, kind: 'Turso', host: t.url.replace(/^(libsql|turso|https?):\/\//i, '').split('/')[0] }
     }
     if (c.url && c.key) {
-      return { connected: true, kind: 'Máy chủ', host: c.url.replace(/^https?:\/\//i, '').split('/')[0] }
+      return { connected: true, off: false, kind: 'Máy chủ', host: c.url.replace(/^https?:\/\//i, '').split('/')[0] }
     }
-    return { connected: false, kind: '', host: '' }
+    return { connected: false, off: false, kind: '', host: '' }
   }, [])
 
-  if (state.connected) return null
+  if (state.connected && !state.off) return null
 
   const connect = () => {
     setError('')
@@ -60,12 +60,26 @@ export function ConnectionBanner() {
     <>
       <button
         onClick={() => setOpen(true)}
-        className="flex w-full flex-wrap items-center gap-2 border-b border-rose-200 bg-rose-50 px-3 py-1.5 text-left text-[11.5px] text-rose-900 hover:bg-rose-100 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-100 sm:px-5"
+        className={`flex w-full flex-wrap items-center gap-2 border-b px-3 py-1.5 text-left text-[11.5px] sm:px-5 ${
+          state.off
+            ? 'border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-900/25 dark:text-amber-100'
+            : 'border-rose-200 bg-rose-50 text-rose-900 hover:bg-rose-100 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-100'
+        }`}
       >
         <CloudOff size={13} className="shrink-0" />
-        <span className="font-semibold">Máy này CHƯA nối cơ sở dữ liệu chung</span>
-        <span className="hidden sm:inline">— dữ liệu chỉ nằm trên máy này, máy khác không thấy. Bấm để nối.</span>
-        <span className="sm:hidden">— nối ngay →</span>
+        {state.off ? (
+          <>
+            <span className="font-semibold">Đồng bộ đang TẮT trên máy này</span>
+            <span className="hidden sm:inline">— đã có cấu hình nhưng công tắc Turso đang tắt. Bấm để xem.</span>
+            <span className="sm:hidden">— xem →</span>
+          </>
+        ) : (
+          <>
+            <span className="font-semibold">Máy này CHƯA nối cơ sở dữ liệu chung</span>
+            <span className="hidden sm:inline">— dữ liệu chỉ nằm trên máy này, máy khác không thấy. Bấm để nối.</span>
+            <span className="sm:hidden">— nối ngay →</span>
+          </>
+        )}
       </button>
 
       {open && (
@@ -120,6 +134,14 @@ export function ConnectionSummaryCard() {
   const t = loadTurso()
   const c = loadCloud()
   const connected = tursoReady(t) || (!!c.url && !!c.key)
+  if (connected && tursoReady(t) && !t.enabled) {
+    return (
+      <div className="mb-3 rounded-2xl border border-amber-300 bg-amber-50 p-3 text-[12px] text-amber-900 dark:border-amber-800 dark:bg-amber-900/25 dark:text-amber-100">
+        <p className="font-semibold">⚠️ Đồng bộ đang TẮT</p>
+        <p className="mt-1 leading-relaxed">Máy đã có cấu hình Turso nhưng công tắc “Đồng bộ Turso” đang tắt → không nhận, không gửi thay đổi. Bật công tắc ở khung bên dưới.</p>
+      </div>
+    )
+  }
   if (!connected) {
     return (
       <div className="mb-3 rounded-2xl border border-rose-200 bg-rose-50 p-3 text-[12px] text-rose-900 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-100">

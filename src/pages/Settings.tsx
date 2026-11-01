@@ -439,9 +439,16 @@ function CloudDatabase() {
           </div>
         </Card>
       )}
-    <div className="grid gap-3 lg:grid-cols-2">
+    <div className="space-y-3">
+      <TursoPanel />
+
+      <details className="rounded-2xl border border-ink-200 bg-white p-3 text-[12px] dark:border-ink-800 dark:bg-ink-900">
+        <summary className="cursor-pointer font-semibold text-ink-600 dark:text-ink-300">
+          Kết nối Postgres / Supabase (bản cũ — không cần dùng khi đã có Turso)
+        </summary>
+        <div className="mt-3 grid gap-3 lg:grid-cols-2">
       <Card>
-        <CardHeader title="Kết nối Postgres (Supabase / Neon)" subtitle="Nơi lưu dữ liệu thật, nhiều máy dùng chung" icon={<Cloud size={16} />} />
+        <CardHeader title="Kết nối Postgres (Supabase / Neon)" subtitle="Bản cũ. Hiện chuỗi dùng Turso ở trên — phần này chỉ để tra cứu." icon={<Cloud size={16} />} />
         <div className="space-y-3 p-4">
           <Field label="Project URL" hint="Supabase → Settings → API → Project URL, dạng https://xxxx.supabase.co">
             <Input value={cfg.url} onChange={(e) => update({ url: e.target.value })} placeholder="https://abcdefgh.supabase.co" />
@@ -535,8 +542,8 @@ function CloudDatabase() {
           {cfg.lastSync && <p className="text-[11px] text-ink-400">Lần đồng bộ cuối: {vnTime(cfg.lastSync)} · {cfg.lastRows.toLocaleString('vi-VN')} dòng</p>}
         </div>
       </Card>
-
-      <TursoPanel />
+        </div>
+      </details>
 
       {lostOpen && newToken && (
         <Modal open onClose={() => setLostOpen(false)} title="Cấp lại mã đồng bộ" footer={

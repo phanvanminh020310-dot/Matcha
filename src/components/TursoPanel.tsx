@@ -77,6 +77,41 @@ export function TursoPanel() {
       />
 
       <div className="space-y-3">
+        <div className={`rounded-xl border p-2.5 text-[11.5px] leading-relaxed ${
+          ready && cfg.enabled
+            ? 'border-matcha-200 bg-matcha-50 text-matcha-900 dark:border-matcha-800 dark:bg-matcha-900/20 dark:text-matcha-100'
+            : ready
+              ? 'border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-900/25 dark:text-amber-100'
+              : 'border-rose-200 bg-rose-50 text-rose-900 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-100'
+        }`}>
+          <p className="font-semibold">
+            {ready && cfg.enabled
+              ? `✔ Máy này ĐÃ NỐI Turso — quyền: ${modeLabel}`
+              : ready
+                ? '⚠️ Đã điền cấu hình nhưng ĐỒNG BỘ ĐANG TẮT — bật công tắc ở góc phải tiêu đề'
+                : '✖ Máy này CHƯA nối Turso — dữ liệu chỉ nằm trên máy này'}
+          </p>
+          <p className="mt-1">
+            {ready && cfg.enabled
+              ? 'Mở app là máy tự hỏi phần thay đổi mới (chỉ vài KB). Máy có quyền ghi thì thay đổi được tự đẩy lên ngay sau mỗi thao tác.'
+              : ready
+                ? 'Đang tắt thì máy không nhận và không gửi thay đổi nào. Bật công tắc “Đồng bộ Turso” là đồng bộ chạy lại bình thường.'
+                : 'Cách nhanh nhất: ở máy đang chạy đúng, vào “Chia sẻ cho người khác” bên dưới để tạo link, rồi mở link đó trên máy này — app tự điền hết, không phải dán token bằng tay.'}
+          </p>
+        </div>
+
+        <details className="rounded-xl bg-ink-50 p-2.5 text-[11.5px] leading-relaxed text-ink-600 dark:bg-ink-800 dark:text-ink-300">
+          <summary className="cursor-pointer font-semibold text-ink-700 dark:text-ink-200">Cần điền những ô nào? (giải thích ngắn)</summary>
+          <ul className="mt-2 space-y-1.5">
+            <li>• <b>Địa chỉ database</b>: địa chỉ “sổ cái” của chuỗi (ai cũng cần, giống nhau trên mọi máy).</li>
+            <li>• <b>Token CHỈ ĐỌC</b>: để máy này <b>NHẬN</b> dữ liệu về. Máy xem / máy nhân viên chỉ cần ô này.</li>
+            <li>• <b>Token GHI</b>: để máy này <b>GỬI</b> thay đổi lên (bán hàng, nhập kho, sửa thực đơn). Chỉ đặt trên máy của chủ chuỗi.</li>
+            <li>• <b>Token ĐẶT HÀNG</b>: máy thu ngân — chỉ ghi được đơn &amp; khách, không sửa thực đơn/danh mục.</li>
+            <li>• Điền xong nhớ bật công tắc <b>Đồng bộ Turso</b> ở góc phải tiêu đề.</li>
+          </ul>
+          <p className="mt-2">Máy chỉ có Token CHỈ ĐỌC vẫn <b>đồng bộ</b> (nhận dữ liệu mới), chỉ là không đẩy được thay đổi lên.</p>
+        </details>
+
         <Field label="Địa chỉ database" hint="Dạng libsql://matcha-….turso.io (lấy trong Turso → database → Connect)">
           <Input value={cfg.url} placeholder="libsql://matcha-…turso.io" onChange={(e) => update({ url: e.target.value })} />
         </Field>
