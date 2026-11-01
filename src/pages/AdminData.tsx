@@ -18,7 +18,11 @@ const BOOLISH = /^(is_|has_)/
 export function AdminDataPage() {
   const { user, toast, branchId } = useApp()
   const allowed = can(user?.role, 'admin.master')
-  const [table, setTable] = useState('products')
+  const [table, setTable] = useState(() => {
+    // hỗ trợ deep-link từ các module: #/admin?table=products
+    const m = /table=([a-z_]+)/i.exec(window.location.hash)
+    return m && TABLES.some((t) => t.name === m[1]) ? m[1] : 'products'
+  })
   const [q, setQ] = useState('')
   const [search, setSearch] = useState('')
   const [sort, setSort] = useState<string | undefined>()

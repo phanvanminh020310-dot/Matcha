@@ -4,6 +4,7 @@ import { createVoucher, getPromotions, getVouchers, updateVoucherActive } from '
 import { useSql } from '../hooks/useDb'
 import { useApp } from '../store/app'
 import { PageHeader } from '../components/layout/AppShell'
+import { ManageTableLink } from '../components/ManageTableLink'
 import { Badge, Button, Card, CardHeader, EmptyState, Field, Input, Modal, MoneyInput, Select, Switch, Tabs } from '../components/ui'
 import { TIER_LABEL, cx, formatDate, formatVND, todayVN } from '../lib/format'
 
@@ -20,7 +21,10 @@ export function PromotionsPage() {
         icon={<TicketPercent size={20} />}
         title="Khuyến mãi & voucher"
         description="Voucher theo mã và chương trình khuyến mãi tự động (giờ vàng, hạng thành viên, combo)"
-        actions={tab === 'voucher' ? <Button variant="primary" icon={<Plus size={16} />} onClick={() => setCreating(true)}>Tạo voucher</Button> : undefined}
+        actions={<>
+          <ManageTableLink table={tab === 'voucher' ? 'vouchers' : 'promotions'} />
+          {tab === 'voucher' && <Button variant="primary" icon={<Plus size={16} />} onClick={() => setCreating(true)}>Tạo voucher</Button>}
+        </>}
       />
       <Tabs value={tab} onChange={setTab} className="mb-3 w-fit" tabs={[{ value: 'voucher', label: 'Voucher', count: vouchers.length }, { value: 'promo', label: 'Chương trình tự động', count: promotions.length }]} />
 

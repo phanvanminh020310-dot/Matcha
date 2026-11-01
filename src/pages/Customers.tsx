@@ -4,6 +4,7 @@ import { createCustomer, getCustomer, getCustomerOrders, getCustomers, type Cust
 import { useSql } from '../hooks/useDb'
 import { useApp } from '../store/app'
 import { PageHeader } from '../components/layout/AppShell'
+import { ManageTableLink } from '../components/ManageTableLink'
 import { Badge, Button, Card, CardHeader, EmptyState, Field, Input, Modal, Tabs } from '../components/ui'
 import { CHANNEL_LABEL, STATUS_LABEL, TIER_LABEL, cx, formatDate, formatNumber, formatVND } from '../lib/format'
 
@@ -31,7 +32,7 @@ export function CustomersPage() {
         icon={<HeartHandshake size={20} />}
         title="Khách hàng & CRM"
         description={`${formatNumber(stats.total)} khách · ${stats.vip} khách Vàng/Kim cương · chi tiêu TB ${formatVND(stats.avg, { compact: true })}`}
-        actions={<Button variant="primary" icon={<UserPlus size={16} />} onClick={() => setCreating(true)}>Thêm khách</Button>}
+        actions={<><ManageTableLink table="customers" /><Button variant="primary" icon={<UserPlus size={16} />} onClick={() => setCreating(true)}>Thêm khách</Button></>}
       />
 
       <div className="mb-3 grid gap-3 sm:grid-cols-4">

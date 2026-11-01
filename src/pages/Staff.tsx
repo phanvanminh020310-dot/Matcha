@@ -5,6 +5,7 @@ import { shiftReport } from '../lib/analytics'
 import { useSql } from '../hooks/useDb'
 import { useApp } from '../store/app'
 import { PageHeader } from '../components/layout/AppShell'
+import { ManageTableLink } from '../components/ManageTableLink'
 import { Badge, Card, CardHeader, EmptyState, ProgressBar, Stat, Tabs } from '../components/ui'
 import { ROLE_LABEL, addDays, cx, formatDate, formatDateTime, formatNumber, formatVND, todayVN } from '../lib/format'
 
@@ -24,7 +25,8 @@ export function StaffPage() {
   return (
     <div>
       <PageHeader icon={<Users size={20} />} title="Nhân sự & ca làm việc"
-        description={`${users.length} nhân viên · quỹ lương ${formatVND(totalSalary, { compact: true })}/tháng · doanh thu 30 ngày ${formatVND(revenue, { compact: true })}`} />
+        description={`${users.length} nhân viên · quỹ lương ${formatVND(totalSalary, { compact: true })}/tháng · doanh thu 30 ngày ${formatVND(revenue, { compact: true })}`}
+        actions={<ManageTableLink table="users" label="Thêm / sửa nhân viên" />} />
 
       <div className="mb-3 grid gap-3 sm:grid-cols-3">
         <Stat label="Nhân viên đang làm" value={users.filter((u) => u.is_active).length} icon={<Users size={17} />} sub={`${users.filter((u) => u.role === 'barista').length} pha chế · ${users.filter((u) => u.role === 'cashier').length} thu ngân`} />

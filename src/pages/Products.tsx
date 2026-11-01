@@ -5,6 +5,7 @@ import { createProduct, getCategories, getProducts, updateProduct, type Product 
 import { useSql } from '../hooks/useDb'
 import { useApp } from '../store/app'
 import { PageHeader } from '../components/layout/AppShell'
+import { ManageTableLink } from '../components/ManageTableLink'
 import { Badge, Button, Card, EmptyState, Field, Input, Modal, MoneyInput, Select, Switch, Textarea } from '../components/ui'
 import { cx, downloadFile, formatPercent, formatVND, toCSV } from '../lib/format'
 
@@ -40,6 +41,7 @@ export function ProductsPage() {
         description={`${products.length} món · ${products.filter((p) => p.is_active).length} đang bán · giá vốn lấy từ công thức BOM`}
         actions={
           <>
+            <ManageTableLink table="products" />
             <Button variant="secondary" icon={<Download size={15} />} onClick={exportCsv}>Xuất CSV</Button>
             <Button variant="primary" icon={<Plus size={16} />} onClick={() => setCreating(true)}>Thêm món</Button>
           </>
