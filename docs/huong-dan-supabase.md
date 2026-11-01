@@ -39,7 +39,17 @@
    | **Database Password** | bấm **Generate a password** → **copy và lưu lại** (dùng khi cần truy cập DB trực tiếp, không dùng cho app) |
    | **Region** | **Southeast Asia (Singapore)** — gần Việt Nam nhất, độ trễ thấp |
    | Plan | **Free** |
-3. Bấm **Create new project** và đợi thanh *Setting up project…* chạy xong (~2 phút, sẽ tự chuyển vào project).
+3. Khối **Security** (màn hình mới của Supabase) — chọn như sau:
+
+   | Tuỳ chọn | Chọn | Vì sao |
+   | --- | --- | --- |
+   | **Enable Data API** | ✅ **giữ tick (bắt buộc)** | App gọi dữ liệu qua REST API (PostgREST). Bỏ tick là app không kết nối được. |
+   | **Automatically expose new tables** | ❌ **bỏ tick** | `schema.sql` của Matcha đã `GRANT` tường minh cho `anon`/`authenticated`, nên không cần expose tự động (nguyên tắc quyền tối thiểu). |
+   | **Enable automatic RLS** | ✅ tick (khuyến nghị) | Bật RLS tự động cho bảng mới — trùng với phần RLS có sẵn trong `schema.sql`, không xung đột, an toàn hơn. |
+
+   Khối **GitHub (optional)** và **ADVANCED CONFIGURATION**: để trống, không cần.
+
+4. Bấm **Create new project** và đợi thanh *Setting up project…* chạy xong (~2 phút, sẽ tự chuyển vào project).
 
 ---
 
