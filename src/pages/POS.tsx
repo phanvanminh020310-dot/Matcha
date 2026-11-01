@@ -2,18 +2,20 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   BadgePercent, Ban, Bike, Check, Clock, Coffee, CreditCard, Gift, Grid2x2, Heart, Layers, Minus, MoreHorizontal,
   PauseCircle, Phone, Plus, Printer, QrCode, Receipt, Search, ShoppingBag, Sparkles, Star, Store, Trash2, User,
-  UserPlus, Utensils, Wallet, X, Zap,
+  UserPlus, Utensils, Wallet, X, Zap, MapPin, Route as RouteIcon,
 } from 'lucide-react'
 import {
   addShiftCash, checkout, closeShift, computePromotionDiscount, createCustomer, getBranches, getCategories, getCustomer,
   getOrderDetail, getProductSizes, getProductToppings, getProducts, getShiftOpen, getTables, getToppings, openShift,
-  searchCustomers, shiftSummary, validateVoucher, type Customer, type Product, type Topping,
+  searchCustomers, shiftSummary, validateVoucher, createDelivery, type Customer, type Product, type Topping,
 } from '../lib/api'
 import { useSql } from '../hooks/useDb'
 import { useApp } from '../store/app'
 import { buildVietQR, bankByBin } from '../lib/vietqr'
 import { getBankAccounts } from '../lib/api'
 import QRCode from 'qrcode'
+import { BRANCH_GEO, DEMO_PLACES, deliveryFeeFor, route as getRoute, searchAddress, type RouteResult } from '../lib/geo'
+import { MapView } from '../components/MapView'
 import { Badge, Button, Card, ConfirmDialog, EmptyState, Field, IconButton, Input, Modal, MoneyInput, Select, Textarea, Tooltip } from '../components/ui'
 import { CHANNEL_LABEL, cx, formatVND, normalize, nowVN, TIER_LABEL, formatDateTime } from '../lib/format'
 
@@ -59,6 +61,8 @@ export function POSPage() {
   const [customer, setCustomer] = useState<Customer | null>(null)
   const [deliveryAddress, setDeliveryAddress] = useState('')
   const [deliveryFee, setDeliveryFee] = useState(15000)
+  const [deliveryGeo, setDeliveryGeo] = useState<{ lat: number; lng: number; distanceKm: number; etaMin: number } | null>(null)
+  const [geoOpen, setGeoOpen] = useState(false)
   const [note, setNote] = useState('')
   const [voucherCode, setVoucherCode] = useState('')
   const [voucher, setVoucher] = useState<{ id: number; code: string; discount: number } | null>(null)
@@ -181,7 +185,15 @@ export function POSPage() {
     })
     setPaymentOpen(false)
     setReceipt({ orderId: res.orderId, code: res.code, queue: res.queueNo })
-    setLines([]); setCustomer(null); setTableId(null); setVoucher(null); setVoucherCode(''); setPointsUsed(0); setNote(''); setDeliveryAddress('')
+    if (channel === 'delivery' && deliveryAddress.trim()) {
+      createDelivery({
+        orderId: res.orderId, branchId, address: deliveryAddress.trim(),
+        lat: deliveryGeo?.lat ?? null, lng: deliveryGeo?.lng ?? null,
+        distanceKm: deliveryGeo?.distanceKm ?? 0, fee: deliveryFee, codAmount: res.total,
+        etaMinutes: deliveryGeo?.etaMin ?? null, userId: user.id,
+      })
+    }
+    setLines([]); setCustomer(null); setTableId(null); setVoucher(null); setVoucherCode(''); setPointsUsed(0); setNote(''); setDeliveryAddress(''); setDeliveryGeo(null)
     toast({
       title: `Thanh toán thành công ${formatVND(res.total)}`,
       description: `Đơn ${res.code}${res.queueNo ? ` · số gọi ${res.queueNo}` : ''} · đã trừ ${res.stockDeducted.length} nguyên liệu khỏi kho`,
@@ -305,7 +317,13 @@ export function POSPage() {
                   </Select>
                   <MoneyInput value={deliveryFee} onChange={setDeliveryFee} className="h-9 text-[12px]" />
                 </div>
-                <Input value={deliveryAddress} onChange={(e) => setDeliveryAddress(e.target.value)} placeholder="Địa chỉ giao hàng" className="h-9 text-[12px]" />
+                <div className="flex gap-1.5">
+                  <Input value={deliveryAddress} onChange={(e) => { setDeliveryAddress(e.target.value); setDeliveryGeo(null) }} placeholder="Địa chỉ giao hàng" className="h-9 text-[12px]" />
+                  <Button size="sm" variant={deliveryGeo ? 'secondary' : 'primary'} className="h-9 shrink-0" icon={<MapPin size={13} />} onClick={() => setGeoOpen(true)}>
+                    {deliveryGeo ? `${deliveryGeo.distanceKm}km` : 'Bản đồ'}
+                  </Button>
+                </div>
+                {deliveryGeo && <p className="text-[10.5px] text-matcha-700 dark:text-matcha-300">Tuyến OSRM {deliveryGeo.distanceKm} km · ~{deliveryGeo.etaMin} phút · phí {formatVND(deliveryFee)}</p>}
               </div>
             )}
           </div>
@@ -437,6 +455,19 @@ export function POSPage() {
           code={undefined}
           onClose={() => setPaymentOpen(false)}
           onConfirm={doCheckout}
+        />
+      )}
+
+      {geoOpen && (
+        <DeliveryGeoModal
+          branchId={branchId}
+          onClose={() => setGeoOpen(false)}
+          onPick={(p) => {
+            setDeliveryAddress(p.address)
+            setDeliveryFee(p.fee)
+            setDeliveryGeo({ lat: p.lat, lng: p.lng, distanceKm: p.distanceKm, etaMin: p.etaMin })
+            setGeoOpen(false)
+          }}
         />
       )}
 
@@ -610,6 +641,81 @@ function CustomizeModal({ product, initial, allToppings, onClose, editUid, onAdd
             <IconButton label="Tăng" onClick={() => setQty((n) => n + 1)}><Plus size={14} /></IconButton>
           </div>
         </div>
+      </div>
+    </Modal>
+  )
+}
+
+
+/* ------------------- Chọn địa chỉ giao + tính phí theo bản đồ ------------------- */
+function DeliveryGeoModal({ branchId, onClose, onPick }: {
+  branchId: number
+  onClose: () => void
+  onPick: (p: { address: string; lat: number; lng: number; distanceKm: number; etaMin: number; fee: number }) => void
+}) {
+  const origin = BRANCH_GEO[branchId] ?? BRANCH_GEO[1]
+  const [q, setQ] = useState('')
+  const [places, setPlaces] = useState<{ display: string; lat: number; lng: number; district?: string }[]>([])
+  const [picked, setPicked] = useState<{ display: string; lat: number; lng: number; district?: string } | null>(null)
+  const [route, setRoute] = useState<RouteResult | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [manual, setManual] = useState('')
+
+  const search = async () => {
+    setLoading(true)
+    const res = await searchAddress(q)
+    setPlaces(res.length ? res : DEMO_PLACES.map((p) => ({ display: p.address, lat: p.lat, lng: p.lng, district: p.district })))
+    setLoading(false)
+  }
+  const choose = async (p: { display: string; lat: number; lng: number; district?: string }) => {
+    setPicked(p)
+    setRoute(await getRoute({ lat: origin.lat, lng: origin.lng }, { lat: p.lat, lng: p.lng }))
+  }
+
+  return (
+    <Modal open onClose={onClose} size="lg" title="Địa chỉ giao & phí ship" description="Tìm địa chỉ thật (OpenStreetMap) → tính tuyến đường OSRM → phí theo km"
+      footer={<>
+        <Button onClick={onClose}>Huỷ</Button>
+        <Button variant="primary" disabled={!picked || !route} icon={<Check size={15} />} onClick={() => {
+          if (!picked || !route) return
+          onPick({ address: picked.display, lat: picked.lat, lng: picked.lng, distanceKm: route.distanceKm, etaMin: route.durationMin, fee: deliveryFeeFor(route.distanceKm) })
+        }}>Dùng địa chỉ này</Button>
+      </>}>
+      <div className="space-y-2">
+        <div className="flex gap-2">
+          <Input autoFocus value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') search() }} placeholder="72 Lê Thánh Tôn, Quận 1…" />
+          <Button variant="primary" disabled={loading || q.length < 3} onClick={search}>{loading ? 'Đang tìm…' : 'Tìm'}</Button>
+        </div>
+        {places.length > 0 && (
+          <div className="max-h-[160px] space-y-1 overflow-y-auto rounded-xl border border-ink-200 p-1.5 dark:border-ink-700">
+            {places.map((p, i) => (
+              <button key={i} onClick={() => choose(p)} className={cx('w-full rounded-lg px-2 py-1.5 text-left text-[11.5px] hover:bg-ink-50 dark:hover:bg-ink-800', picked?.display === p.display && 'bg-matcha-50 dark:bg-matcha-900/20')}>
+                <p className="line-clamp-2 text-ink-700 dark:text-ink-200">{p.display}</p>
+                {p.district && <p className="text-[10px] text-ink-400">{p.district}</p>}
+              </button>
+            ))}
+          </div>
+        )}
+        <Input value={manual} onChange={(e) => setManual(e.target.value)} placeholder="Hoặc nhập địa chỉ tay (không tính phí tự động)" className="text-[12px]" />
+        {manual.length > 5 && !picked && (
+          <Button size="sm" variant="secondary" onClick={() => onPick({ address: manual, lat: 0, lng: 0, distanceKm: 0, etaMin: 0, fee: 0 })}>Dùng địa chỉ nhập tay</Button>
+        )}
+        <MapView
+          markers={[
+            { id: 'o', lat: origin.lat, lng: origin.lng, kind: 'branch', label: 'Quán' },
+            ...(picked ? [{ id: 'c', lat: picked.lat, lng: picked.lng, kind: 'customer' as const, label: 'Điểm giao' }] : []),
+          ]}
+          route={route?.geometry}
+          height={240}
+        />
+        {route && (
+          <div className="flex flex-wrap items-center gap-3 rounded-xl bg-matcha-50 p-2.5 text-[12px] dark:bg-matcha-900/20">
+            <span className="flex items-center gap-1"><RouteIcon size={13} /> {route.distanceKm} km</span>
+            <span>~{route.durationMin} phút</span>
+            <span className="font-semibold">Phí ship {formatVND(deliveryFeeFor(route.distanceKm))}</span>
+            <span className="text-[10.5px] text-ink-400">nguồn: {route.source === 'osrm' ? 'OSRM (định tuyến thật)' : 'ước lượng offline'}</span>
+          </div>
+        )}
       </div>
     </Modal>
   )

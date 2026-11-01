@@ -272,6 +272,8 @@ Nếu bị chặn ở đâu (quyền GitHub, dịch vụ deploy…), dự án v�
 | Trang theo dõi `#/track/VD…` (không đăng nhập) | ✅ bản đồ + timeline + COD 301.000 ₫ |
 | VietQR: sinh QR thật + CRC + copy payload | ✅ `STK 0071000123456`, CRC `E4A9`, ảnh QR render |
 | Đối soát chuyển khoản | ✅ 80 giao dịch chờ, xác nhận ghi `bank_txn_ref` |
+| POS → kênh *Giao hàng* → chọn địa chỉ trên bản đồ → phí tự tính | ✅ 0,7 km · 2 phút · phí 12.000 ₫ (OSRM) |
+| POS tạo đơn giao → **tự sinh vận đơn** trong bảng điều phối | ✅ cột *Chờ điều phối* 1 → 2 |
 | Studio in ấn: 6 mẫu, xem trước có QR + barcode SVG | ✅ QR 1 + barcode 1 trên preview K80 |
 | Xuất `schema.sql` / `seed.sql` cho Postgres | ✅ 33 bảng + 33 RLS, 6,0 MB INSERT (60.854 dòng), cú pháp hợp lệ |
 
