@@ -7,6 +7,7 @@ import {
   DatabaseZap, ShieldCheck, Satellite,
 } from 'lucide-react'
 import { useApp } from '../../store/app'
+import { adminUnlocked } from '../../lib/adminAuth'
 import {navFor, type Role} from '../../lib/rbac'
 import { getBranches, getActiveOrders, getProducts, getOrders, searchCustomers, type Branch } from '../../lib/api'
 import { useSql } from '../../hooks/useDb'
@@ -34,9 +35,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     const cfg = loadCloud()
     if (!cfg.url || !cfg.key) return
     let alive = true
-    void checkWritePermission(cfg).then((w) => { if (alive && w === false) setReadOnly(true) })
-    const onFlag = (e: Event) => setReaderFlag(e)
-    function setReaderFlag(e: Event) { if ((e as CustomEvent<boolean>).detail) setReadOnly(true) }
+    void checkWritePermission(cfg).then((w) => { if (alive && w !== null) setReadOnly(w === false) })
+    // true = chặn ghi, false = đã khôi phục quyền ghi (không cần tải lại trang)
+    const onFlag = (e: Event) => setReadOnly(Boolean((e as CustomEvent<boolean>).detail))
     window.addEventListener('matcha:readonly', onFlag as EventListener)
     return () => { alive = false; window.removeEventListener('matcha:readonly', onFlag as EventListener) }
   }, [])
@@ -222,10 +223,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </header>
 
         {readOnly && (
-          <div className="flex items-center gap-2 border-b border-amber-200 bg-amber-50 px-3 py-1.5 text-[11.5px] text-amber-900 dark:border-amber-800 dark:bg-amber-900/25 dark:text-amber-100 sm:px-5">
+          <div className="flex flex-wrap items-center gap-2 border-b border-amber-200 bg-amber-50 px-3 py-1.5 text-[11.5px] text-amber-900 dark:border-amber-800 dark:bg-amber-900/25 dark:text-amber-100 sm:px-5">
             <span className="font-semibold">👁 Chế độ chỉ xem</span>
-            <span className="hidden sm:inline">— bạn xem &amp; báo cáo được toàn bộ dữ liệu, nhưng không thêm/sửa/xoá được. Cần nhập liệu: nhờ chủ chuỗi gửi link “Làm việc (được ghi)”.</span>
+            <span className="hidden sm:inline">— bạn xem &amp; báo cáo được toàn bộ dữ liệu, nhưng không thêm/sửa/xoá được.</span>
             <span className="sm:hidden">— không thêm/sửa/xoá được</span>
+            {adminUnlocked() ? (
+              <button onClick={() => navigate('/settings')}
+                className="rounded-lg bg-amber-900/10 px-2 py-0.5 font-semibold underline-offset-2 hover:underline dark:bg-amber-100/10">
+                Quản trị: sửa mã đồng bộ ngay →
+              </button>
+            ) : (
+              <span className="hidden sm:inline">Cần nhập liệu: chủ chuỗi gửi link “Làm việc (được ghi)”.</span>
+            )}
           </div>
         )}
 

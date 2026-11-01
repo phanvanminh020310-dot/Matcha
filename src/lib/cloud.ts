@@ -5,7 +5,7 @@
  * • Không có key thì app vẫn chạy offline trên SQLite WASM; cloud là nơi lưu bền nhiều máy
  */
 import { DDL, TABLES } from './schema'
-import { all, runMany, scalar, withSystemWrite, type SqlValue } from './db'
+import { all, runMany, scalar, setReadOnlyMode, withSystemWrite, type SqlValue } from './db'
 import { openSecrets, sealSecrets } from './secureStore'
 
 export interface CloudConfig {
@@ -88,6 +88,8 @@ export function clearCloudError() {
   try { localStorage.removeItem(ERR_KEY) } catch { /* bỏ qua */ }
 }
 
+let SEAL_QUEUE: Promise<void> = Promise.resolve()
+
 /** Lưu cấu hình: phần bí mật được MÃ HOÁ trước khi ghi xuống localStorage. */
 export function saveCloud(cfg: CloudConfig) {
   const clean: CloudConfig = {
@@ -99,8 +101,15 @@ export function saveCloud(cfg: CloudConfig) {
   SECRETS = { key: clean.key, token: clean.token }
   const plain = { url: clean.url, autoSync: clean.autoSync, realtime: clean.realtime, lastSync: clean.lastSync, lastRows: clean.lastRows }
   localStorage.setItem(KEY, JSON.stringify(plain))
-  void sealSecrets(SECRETS)
+  // Xếp hàng: mỗi lần lưu phải ghi xong bản mã hoá mới sang lần kế tiếp,
+  // tránh trường hợp gõ nhanh/nhấn F5 mà bản mã hoá cũ ghi đè bản mới.
+  SEAL_QUEUE = SEAL_QUEUE.then(async () => { await sealSecrets({ key: clean.key, token: clean.token }) }).catch(() => { /* bỏ qua */ })
 }
+
+
+
+/** Chờ mọi thay đổi cấu hình đã được mã hoá xong (dùng trước khi tải lại trang). */
+export async function flushCloudSave() { try { await SEAL_QUEUE } catch { /* bỏ qua */ } }
 
 /**
  * Xoá cấu hình khỏi máy (máy trả về trạng thái "chưa cấu hình").
@@ -490,6 +499,30 @@ export function localCounts() {
 }
 
 /** Mã hiện tại có quyền GHI không? (link chia sẻ "chỉ xem" sẽ trả false) */
+/** Server trả lời: mã trên máy có hợp lệ không (đọc được) và có quyền ghi không. */
+export async function tokenPermission(cfg: CloudConfig): Promise<{ valid: boolean | null; write: boolean | null }> {
+  if (!cfg.url || !cfg.key) return { valid: null, write: null }
+  const call = async (fn: string) => {
+    try {
+      const res = await fetch(`${normUrl(cfg.url)}/rest/v1/rpc/${fn}`, {
+        method: 'POST', headers: headers(cfg), body: '{}', signal: AbortSignal.timeout(12000),
+      })
+      if (!res.ok) return null
+      return (await res.json().catch(() => null)) === true
+    } catch { return null }
+  }
+  const [valid, write] = await Promise.all([call('sync_ok'), call('sync_write_ok')])
+  return { valid, write }
+}
+
+/** Kiểm tra lại quyền ghi và cập nhật trạng thái chỉ-đọc NGAY (không cần tải lại trang). */
+export async function refreshWritePermission(): Promise<boolean | null> {
+  const can = await checkWritePermission(loadCloud())
+  setReadOnlyMode(can === false)
+  window.dispatchEvent(new CustomEvent('matcha:readonly', { detail: can === false }))
+  return can
+}
+
 export async function checkWritePermission(cfg: CloudConfig): Promise<boolean | null> {
   if (!cfg.url || !cfg.key) return null
   try {

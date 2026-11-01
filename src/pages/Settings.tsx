@@ -10,7 +10,7 @@ import { Badge, Button, Card, CardHeader, Field, Input, Modal, Select, Switch, T
 import { dbSizeBytes, run } from '../lib/db'
 import { REALTIME_SQL } from '../lib/realtime'
 import { RLS_SQL } from '../lib/rls'
-import { buildSeedSQL, checkToken, checkWritePermission, cloudCounts, keyWarning, loadCloud, localCounts, pullAll, pushAll, saveCloud, testCloud, toPgDDL, tokenWarning, type CloudConfig, type SyncProgress } from '../lib/cloud'
+import { buildSeedSQL, checkToken, checkWritePermission, cloudCounts, flushCloudSave, keyWarning, loadCloud, localCounts, pullAll, pushAll, refreshWritePermission, saveCloud, testCloud, toPgDDL, tokenPermission, tokenWarning, type CloudConfig, type SyncProgress } from '../lib/cloud'
 import { downloadFile } from '../lib/format'
 import { buildShareLink, mintShareToken, type ShareMode } from '../lib/share'
 import { PERM_GROUPS, getRoles, permsOf } from '../lib/permissions'
@@ -250,6 +250,14 @@ function CloudDatabase() {
     void checkWritePermission(cfg).then((w) => { if (alive) setCanWrite(w) })
     return () => { alive = false }
   }, [cfg.url, cfg.key, cfg.token])
+  // Chẩn đoán mã đang dùng: server nói mã có đọc được / ghi được không
+  const [perm, setPerm] = useState<{ valid: boolean | null; write: boolean | null } | null>(null)
+  const [permBusy, setPermBusy] = useState(false)
+  const checkPerm = async () => {
+    setPermBusy(true)
+    try { setPerm(await tokenPermission(cfg)) } finally { setPermBusy(false) }
+  }
+  useEffect(() => { if (cfg.url && cfg.key) void checkPerm() /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [cfg.url, cfg.key])
   const readOnly = canWrite === false
   // Quản trị CSDL đã mở khoá thì LUÔN thấy đầy đủ ô nhập — kể cả khi máy đang bị chặn ghi
   // (mã đồng bộ hết hiệu lực/bị thu hồi) — để dán mã mới và khôi phục quyền ghi.
@@ -315,7 +323,7 @@ function CloudDatabase() {
       const res = mode === 'push' ? await pushAll(cfg, setProgress) : await pullAll(cfg, setProgress)
       setCfg(loadCloud())
       toast({ title: mode === 'push' ? 'Đã đẩy dữ liệu lên Postgres' : 'Đã tải dữ liệu từ Postgres', description: `${res.rows.toLocaleString('vi-VN')} dòng · ${new Date().toLocaleTimeString('vi-VN')}`, tone: 'success' })
-      if (mode === 'pull') setTimeout(() => location.reload(), 1200)
+      if (mode === 'pull') setTimeout(async () => { await flushCloudSave(); location.reload() }, 1200)
     } catch (e) {
       toast({ title: 'Đồng bộ thất bại', description: (e as Error).message.slice(0, 160), tone: 'error' })
     } finally {
@@ -340,7 +348,7 @@ function CloudDatabase() {
       saveCloud({ ...cfg, autoSync: true, lastSync: new Date().toISOString(), lastRows: res.rows })
       setCfg(loadCloud())
       toast({ title: 'Đã kết nối máy này với cloud', description: `${res.rows.toLocaleString('vi-VN')} dòng đã tải về · tự đồng bộ đã bật`, tone: 'success' })
-      setTimeout(() => location.reload(), 1400)
+      setTimeout(async () => { await flushCloudSave(); location.reload() }, 1400)
     } catch (e) {
       toast({ title: 'Kết nối thất bại', description: (e as Error).message.slice(0, 180), tone: 'error' })
     } finally {
@@ -370,14 +378,57 @@ function CloudDatabase() {
 
   return (
     <div className="space-y-3">
-      {readOnly && adminMode && (
-        <div className="rounded-2xl border border-amber-300 bg-amber-50 p-3 text-[11.5px] leading-relaxed text-amber-900 dark:border-amber-700/60 dark:bg-amber-900/20 dark:text-amber-100">
-          <p className="font-semibold">⚠️ Máy này đang bị CHẶN GHI (chế độ chỉ xem)</p>
-          <p className="mt-0.5">
-            Mã đồng bộ trên máy không còn hiệu lực hoặc chỉ có quyền đọc — thường là do mã cũ đã bị thu hồi.
-            Dán <b>mã đồng bộ mới</b> vào ô bên dưới, bấm <b>Kiểm tra mã</b> rồi <b>Kết nối &amp; tải toàn bộ</b>; xong thì tải lại trang là hết chế độ chỉ xem.
-          </p>
-        </div>
+      {adminMode && (
+        <Card>
+          <CardHeader title="Quyền ghi của máy này" subtitle="Máy chủ Postgres trả lời trực tiếp — không phải suy đoán"
+            icon={<Shield size={16} />} />
+          <div className="space-y-2 p-4 text-[12px] text-ink-600 dark:text-ink-300">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className={cx('rounded-lg px-2 py-1 text-[11.5px] font-semibold',
+                perm?.valid === true ? 'bg-matcha-50 text-matcha-800 dark:bg-matcha-900/30 dark:text-matcha-200'
+                  : perm?.valid === false ? 'bg-rose-50 text-rose-700 dark:bg-rose-900/25 dark:text-rose-200'
+                    : 'bg-ink-100 text-ink-500 dark:bg-ink-800')}>
+                Mã đọc dữ liệu: {perm === null ? 'đang kiểm tra…' : perm.valid === null ? 'không kiểm tra được' : perm.valid ? 'hợp lệ ✅' : 'KHÔNG hợp lệ ❌'}
+              </span>
+              <span className={cx('rounded-lg px-2 py-1 text-[11.5px] font-semibold',
+                perm?.write === true ? 'bg-matcha-50 text-matcha-800 dark:bg-matcha-900/30 dark:text-matcha-200'
+                  : perm?.write === false ? 'bg-amber-100 text-amber-900 dark:bg-amber-900/30 dark:text-amber-100'
+                    : 'bg-ink-100 text-ink-500 dark:bg-ink-800')}>
+                Quyền ghi: {perm === null ? '…' : perm.write === null ? 'không kiểm tra được' : perm.write ? 'được ghi ✅' : 'CHỈ ĐỌC ⚠️'}
+              </span>
+              <Button size="sm" variant="secondary" disabled={permBusy} onClick={() => { void checkPerm() }}>{permBusy ? 'Đang kiểm tra…' : 'Kiểm tra lại'}</Button>
+              <Button size="sm" variant="primary" disabled={permBusy} onClick={async () => {
+                setPermBusy(true)
+                const p = await tokenPermission(cfg)
+                setPerm(p)
+                const can = await refreshWritePermission()
+                setCanWrite(can)
+                setPermBusy(false)
+                if (can === true) toast({ title: 'Đã có quyền ghi ✅', description: 'Máy này thêm/sửa/xoá dữ liệu được ngay, không cần tải lại trang.', tone: 'success' })
+                else toast({ title: 'Vẫn CHỈ ĐỌC', description: p.valid === false ? 'Mã đang dùng là mã chỉ đọc hoặc đã bị thu hồi — dán mã mới của chủ chuỗi.' : 'Chưa kiểm tra được quyền ghi — xem lại Project URL / anon key.', tone: 'error' })
+              }}>Khôi phục quyền ghi</Button>
+            </div>
+            {perm?.write === false && (
+              <div className="rounded-xl border border-amber-300 bg-amber-50 p-2.5 text-[11.5px] leading-relaxed text-amber-900 dark:border-amber-700/60 dark:bg-amber-900/20 dark:text-amber-100">
+                <p className="font-semibold">⚠️ Máy này đang ở chế độ CHỈ XEM</p>
+                <p className="mt-0.5">
+                  {perm.valid === true
+                    ? 'Mã trên máy ĐỌC được nhưng KHÔNG có quyền ghi — đây là mã “Chỉ xem” (link chỉ đọc) hoặc mã đã bị thu hồi quyền ghi.'
+                    : 'Mã trên máy không còn hiệu lực (đã bị thu hồi hoặc gõ sai).'}
+                  {' '}Dán <b>mã đồng bộ GHI</b> của chủ chuỗi vào ô “Mã đồng bộ” bên dưới → bấm <b>Kiểm tra lại</b> → <b>Khôi phục quyền ghi</b>.
+                </p>
+                {cfg.token && (
+                  <p className="mt-1 font-mono text-[10.5px] text-amber-800/80 dark:text-amber-200/80">
+                    mã đang dùng: {cfg.token.slice(0, 10)}…{cfg.token.slice(-6)} ({cfg.token.length} ký tự)
+                  </p>
+                )}
+              </div>
+            )}
+            {perm?.write === true && (
+              <p className="text-[11.5px] text-matcha-800 dark:text-matcha-200">Máy này đang có quyền ghi đầy đủ — không bị chặn thao tác nào.</p>
+            )}
+          </div>
+        </Card>
       )}
     <div className="grid gap-3 lg:grid-cols-2">
       <Card>
