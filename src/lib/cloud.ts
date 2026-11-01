@@ -31,6 +31,27 @@ export function loadCloud(): CloudConfig {
   }
 }
 
+/** Lỗi đồng bộ gần nhất — lưu lại để banner cảnh báo hiện được cả khi lỗi xảy ra lúc app vừa khởi động. */
+const ERR_KEY = 'matcha.cloud.err'
+
+export function setCloudError(message: string) {
+  try { localStorage.setItem(ERR_KEY, JSON.stringify({ message, at: Date.now() })) } catch { /* hết chỗ lưu */ }
+}
+
+export function readCloudError(): { message: string; at: number } | null {
+  try {
+    const raw = localStorage.getItem(ERR_KEY)
+    if (!raw) return null
+    const v = JSON.parse(raw) as { message: string; at: number }
+    if (!v?.message || Date.now() - (v.at ?? 0) > 10 * 60 * 1000) return null
+    return v
+  } catch { return null }
+}
+
+export function clearCloudError() {
+  try { localStorage.removeItem(ERR_KEY) } catch { /* bỏ qua */ }
+}
+
 export function saveCloud(cfg: CloudConfig) {
   // Cắt khoảng trắng/ký tự xuống dòng khi dán key — lỗi phổ biến nhất khi copy từ Supabase
   const clean: CloudConfig = { ...cfg, url: cfg.url.trim().replace(/\/+$/, ''), key: cfg.key.trim(), token: (cfg.token ?? '').trim() }

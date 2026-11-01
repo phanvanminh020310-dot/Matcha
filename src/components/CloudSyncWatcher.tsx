@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { AlertTriangle, CloudLightning, RefreshCw, X } from 'lucide-react'
-import { loadCloud, pullAll } from '../lib/cloud'
+import { clearCloudError, loadCloud, pullAll, readCloudError } from '../lib/cloud'
 import { connectRealtime, type RealtimeEvent, type RealtimeHandle } from '../lib/realtime'
 import { Badge, Button } from './ui'
 
@@ -43,6 +43,8 @@ export function CloudSyncWatcher() {
 
   // Lỗi tự đồng bộ (ví dụ: cloud bật RLS mà chưa nhập Mã đồng bộ) → banner cảnh báo
   useEffect(() => {
+    const saved = readCloudError()
+    if (saved) setCloudError(saved.message)
     const onErr = (ev: Event) => setCloudError(String((ev as CustomEvent<string>).detail ?? 'Lỗi đồng bộ cloud'))
     window.addEventListener('matcha:cloud-error', onErr)
     return () => window.removeEventListener('matcha:cloud-error', onErr)
@@ -59,10 +61,10 @@ export function CloudSyncWatcher() {
           <p className="mt-0.5 line-clamp-3 text-[11.5px] leading-snug text-amber-800 dark:text-amber-200">{cloudError}</p>
           <div className="mt-1.5 flex gap-1.5">
             <Button size="sm" variant="primary" onClick={() => { location.hash = '#/settings' }}>Mở Cài đặt</Button>
-            <Button size="sm" variant="ghost" onClick={() => setCloudError(null)}>Bỏ qua</Button>
+            <Button size="sm" variant="ghost" onClick={() => { setCloudError(null); clearCloudError() }}>Bỏ qua</Button>
           </div>
         </div>
-        <button onClick={() => setCloudError(null)} className="text-amber-500 hover:text-amber-700" aria-label="Đóng"><X size={13} /></button>
+        <button onClick={() => { setCloudError(null); clearCloudError() }} className="text-amber-500 hover:text-amber-700" aria-label="Đóng"><X size={13} /></button>
       </div>
     </div>
   ) : null

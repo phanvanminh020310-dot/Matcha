@@ -5,7 +5,7 @@ import { Toaster } from './components/ui'
 import { CloudSyncWatcher } from './components/CloudSyncWatcher'
 import { useApp } from './store/app'
 import { initDatabase, type InitProgress } from './lib/db'
-import { loadCloud, pullAll } from './lib/cloud'
+import { clearCloudError, loadCloud, pullAll, setCloudError } from './lib/cloud'
 import { LoginPage } from './pages/Login'
 import { POSPage } from './pages/POS'
 import { KDSPage } from './pages/KDS'
@@ -122,11 +122,14 @@ export default function App() {
           try {
             const res = await pullAll(cloud, (p) => { if (!p.done) console.info(`[matcha][cloud] ${p.table} ${p.rows}`) })
             console.info('[matcha][cloud] auto-pull xong', res.rows, 'dòng')
+            clearCloudError()
             if (res.rows > 0) window.dispatchEvent(new CustomEvent('matcha:db-refresh'))
           } catch (e) {
             const msg = (e as Error).message
             console.warn('[matcha][cloud] auto-pull lỗi:', msg)
-            // Hiện banner cảnh báo (thường là: cloud bật RLS mà chưa nhập Mã đồng bộ)
+            // Hiện banner cảnh báo (thường là: cloud bật RLS mà chưa nhập Mã đồng bộ).
+            // Lưu lại rồi phát sự kiện: watcher có thể chưa kịp mount khi lỗi xảy ra lúc khởi động.
+            setCloudError(msg)
             window.dispatchEvent(new CustomEvent('matcha:cloud-error', { detail: msg }))
           }
         } else {
