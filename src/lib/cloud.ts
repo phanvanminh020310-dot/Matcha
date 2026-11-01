@@ -43,7 +43,9 @@ export function keyWarning(key: string): string | null {
   return null
 }
 
-const normUrl = (url: string) => url.trim().replace(/\/+$/, '')
+// Chấp nhận cả URL gốc lẫn URL dán kèm /rest/v1 (lỗi copy rất phổ biến)
+const normUrl = (url: string) =>
+  url.trim().replace(/\/+$/, '').replace(/\/rest\/v1$/i, '').replace(/\/+$/, '')
 
 /* ------------------------------ DDL Postgres ------------------------------ */
 
@@ -118,15 +120,23 @@ export async function testCloud(cfg: CloudConfig) {
   if (!cfg.url || !cfg.key) return { ok: false, message: 'Thiếu URL hoặc anon key' }
   try {
     if (!/^https?:\/\//.test(cfg.url.trim())) return { ok: false, message: 'URL phải bắt đầu bằng https:// (ví dụ https://abcdefgh.supabase.co)' }
-    const res = await fetch(`${normUrl(cfg.url)}/rest/v1/`, { headers: headers(cfg), signal: AbortSignal.timeout(12000) })
+    // Kiểm tra bằng chính bảng nghiệp vụ: 401/403 = sai key, 404 = đúng key nhưng chưa tạo bảng
+    const probe = await fetch(`${normUrl(cfg.url)}/rest/v1/branches?select=id&limit=1`, { headers: headers(cfg), signal: AbortSignal.timeout(15000) })
     const latency = Math.round(performance.now() - started)
-    if (res.status === 401 || res.status === 403) return { ok: false, message: `Key không hợp lệ hoặc thiếu quyền (HTTP ${res.status})`, latency }
-    if (!res.ok) return { ok: false, message: `HTTP ${res.status}`, latency }
-    const probe = await fetch(`${normUrl(cfg.url)}/rest/v1/branches?select=id&limit=1`, { headers: headers(cfg), signal: AbortSignal.timeout(12000) })
-    if (probe.status === 404) return { ok: true, message: 'Kết nối được, nhưng chưa có bảng — hãy chạy file schema.sql trước', latency }
+    if (probe.status === 401 || probe.status === 403) {
+      return { ok: false, message: `Key không hợp lệ hoặc thiếu quyền (HTTP ${probe.status}) — kiểm tra lại anon key`, latency }
+    }
+    if (probe.status === 404) {
+      const body = await probe.text()
+      if (/PGRST205|does not exist|schema cache/i.test(body)) {
+        return { ok: true, message: 'Kết nối được (key hợp lệ), nhưng chưa có bảng — hãy chạy file schema.sql trước', latency }
+      }
+      return { ok: false, message: `Không tìm thấy REST API (HTTP 404) — kiểm tra URL`, latency }
+    }
     if (!probe.ok) return { ok: false, message: `Bảng branches lỗi HTTP ${probe.status}`, latency }
     const rows = await probe.json()
-    return { ok: true, message: `Kết nối tốt · bảng branches có ${Array.isArray(rows) ? rows.length : 0} dòng mẫu`, latency }
+    const count = Array.isArray(rows) ? rows.length : 0
+    return { ok: true, message: count > 0 ? `Kết nối tốt · bảng branches có ${count} dòng (đã có dữ liệu)` : 'Kết nối tốt · bảng branches đã tạo nhưng còn trống — hãy bấm “Đẩy dữ liệu lên”', latency }
   } catch (e) {
     return { ok: false, message: `Không kết nối được: ${(e as Error).message}` }
   }

@@ -1,7 +1,3 @@
--- Matcha POS · schema Postgres (Supabase/Neon) — sinh tự động từ src/lib/schema.ts
--- Chạy toàn bộ file này trong SQL Editor của Supabase (hoặc psql) một lần.
--- Sau đó: Cài đặt → Cơ sở dữ liệu → dán URL + anon key → Đẩy dữ liệu lên.
-
 BEGIN;
 
 
