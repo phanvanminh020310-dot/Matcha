@@ -147,9 +147,9 @@ export default function App() {
         // không cần người dùng nhớ bật "tự đồng bộ".
         const firstRun = !cloud.lastSync && !!cloud.token
         // TIẾT KIỆM BĂNG THÔNG (Supabase tính egress): 1 lần tải toàn bộ ≈ 5 MB nén.
-        // Vì vậy KHÔNG tải lại mỗi lần mở app — chỉ tải khi dữ liệu đã cũ hơn 30 phút.
+        // Vì vậy KHÔNG tải lại mỗi lần mở app — chỉ tải khi dữ liệu đã cũ hơn 60 phút.
         // Dữ liệu thay đổi giữa các máy đã có realtime lo; cần gấp thì bấm "Tải dữ liệu mới nhất".
-        const AUTO_PULL_EVERY_MS = 30 * 60 * 1000
+        const AUTO_PULL_EVERY_MS = 60 * 60 * 1000
         const fresh = !!cloud.lastSync && Date.now() - new Date(cloud.lastSync).getTime() < AUTO_PULL_EVERY_MS
         if (cloud.url && cloud.key && (cloud.autoSync || firstRun) && !fresh) {
           console.info('[matcha][cloud] auto-pull bắt đầu', cloud.url)

@@ -474,7 +474,7 @@ function CloudDatabase() {
             <p className="rounded-xl bg-amber-50 p-2 text-[11px] leading-relaxed text-amber-800 dark:bg-amber-900/20 dark:text-amber-200">⚠️ {keyWarning(cfg.key)}</p>
           )}
           <label className="flex items-center justify-between rounded-xl bg-ink-50 px-3 py-2 text-[12px] dark:bg-ink-800">
-            <span className="text-ink-600 dark:text-ink-300">Tự tải dữ liệu từ cloud khi mở app <span className="text-ink-400">(tối đa 30 phút/lần để tiết kiệm băng thông)</span></span>
+            <span className="text-ink-600 dark:text-ink-300">Tự tải dữ liệu từ cloud khi mở app <span className="text-ink-400">(tối đa 60 phút/lần để tiết kiệm băng thông)</span></span>
             <Switch checked={cfg.autoSync} onChange={(v) => update({ autoSync: v })} label="auto sync" />
           </label>
           <label className="flex items-center justify-between rounded-xl bg-ink-50 px-3 py-2 text-[12px] dark:bg-ink-800">
