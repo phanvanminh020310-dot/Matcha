@@ -9,7 +9,7 @@
 import { clearCloudError, loadCloud, normCloudUrl, saveCloud, type CloudConfig } from './cloud'
 import { isTursoUrl, loadTurso, saveTurso } from './turso'
 
-export type ShareMode = 'ro' | 'rw'
+export type ShareMode = 'ro' | 'rw' | 'order'
 
 export interface SharePayload {
   url: string
@@ -39,7 +39,8 @@ export function decodeShare(code: string): SharePayload | null {
     const raw = JSON.parse(dec(code)) as { u?: string; k?: string; t?: string; m?: string; l?: string }
     // Link Turso chỉ cần địa chỉ + token (cột t để trống)
     if (!raw.u || !raw.k) return null
-    return { url: raw.u, key: raw.k, token: raw.t ?? '', mode: raw.m === 'rw' ? 'rw' : 'ro', label: raw.l }
+    const mode: ShareMode = raw.m === 'rw' ? 'rw' : raw.m === 'order' ? 'order' : 'ro'
+    return { url: raw.u, key: raw.k, token: raw.t ?? '', mode, label: raw.l }
   } catch { return null }
 }
 
@@ -67,6 +68,22 @@ export async function mintShareToken(cfg: CloudConfig, label: string, canWrite: 
     return { ok: true, token, url: t.url, key: token }
   }
   return mintSupabaseShareToken(cfg, label, canWrite)
+}
+
+/**
+ * Link “Đặt hàng”: máy nhận chỉ ghi được ĐƠN & KHÁCH, không sửa thực đơn/danh mục.
+ * Cần một token Turso giới hạn theo bảng (tạo bằng CLI, xem hướng dẫn trong Cài đặt).
+ */
+export function mintOrderShare(): { ok: boolean; token?: string; message?: string; url?: string; key?: string } {
+  const t = loadTurso()
+  if (!t.enabled || !t.url) return { ok: false, message: 'Chưa bật Turso — loại link này chỉ dùng với Turso.' }
+  if (!t.tokenOrder) {
+    return {
+      ok: false,
+      message: 'Chưa có token ĐẶT HÀNG. Tạo bằng lệnh trong hướng dẫn (quyền hạn chế theo bảng) rồi dán vào khối “Đồng bộ Turso” ô “Token đặt hàng”.',
+    }
+  }
+  return { ok: true, token: t.tokenOrder, url: t.url, key: t.tokenOrder }
 }
 
 /** Cấp mã chia sẻ qua Postgres (Supabase) — mỗi link 1 mã riêng, thu hồi được từng người. */
@@ -102,10 +119,12 @@ export async function mintSupabaseShareToken(cfg: CloudConfig, label: string, ca
 export function applySharePayload(p: SharePayload) {
   if (isTursoUrl(p.url)) {
     // Link Turso: token nằm ở p.key; "làm việc" → token ghi, "chỉ xem" → token chỉ đọc
+    const cur = loadTurso()
     saveTurso({
       url: p.url.trim(),
       tokenRw: p.mode === 'rw' ? p.key.trim() : '',
-      tokenRo: p.mode === 'rw' ? (loadTurso().tokenRo ?? '') : p.key.trim(),
+      tokenOrder: p.mode === 'order' ? p.key.trim() : '',
+      tokenRo: p.mode === 'ro' ? p.key.trim() : (cur.tokenRo ?? ''),
       enabled: true,
       lastSeq: 0,
       lastSync: null,

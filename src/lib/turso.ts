@@ -25,6 +25,8 @@ export interface TursoConfig {
   tokenRo: string
   /** Token GHI — chỉ máy của chủ chuỗi */
   tokenRw: string
+  /** Token ĐẶT HÀNG — chỉ thêm/sửa đơn & khách, KHÔNG sửa thực đơn/danh mục (quyền hạn chế theo bảng) */
+  tokenOrder: string
   enabled: boolean
   /** seq lớn nhất đã áp dụng (0 = máy chưa đồng bộ lần nào) */
   lastSeq: number
@@ -35,9 +37,9 @@ export interface TursoConfig {
 const KEY = 'matcha.turso.v1'
 const SECRET_NAME = 'matcha.turso.keys'
 
-const EMPTY: TursoConfig = { url: '', tokenRo: '', tokenRw: '', enabled: false, lastSeq: 0, lastSync: null, lastRows: 0 }
+const EMPTY: TursoConfig = { url: '', tokenRo: '', tokenRw: '', tokenOrder: '', enabled: false, lastSeq: 0, lastSync: null, lastRows: 0 }
 
-let SECRETS: { tokenRo: string; tokenRw: string } | null = null
+let SECRETS: { tokenRo: string; tokenRw: string; tokenOrder: string } | null = null
 let HYDRATED = false
 
 /** URL có phải Turso/libSQL không (phân biệt với Supabase https://…supabase.co). */
@@ -52,9 +54,15 @@ export function loadTurso(): TursoConfig {
     const raw = localStorage.getItem(KEY)
     if (raw) plain = JSON.parse(raw) as Partial<TursoConfig>
   } catch { /* hỏng dữ liệu → coi như trống */ }
-  const { tokenRo: _a, tokenRw: _b, ...rest } = plain as TursoConfig
-  void _a; void _b
-  return { ...EMPTY, ...rest, tokenRo: SECRETS?.tokenRo ?? '', tokenRw: SECRETS?.tokenRw ?? '' }
+  const { tokenRo: _a, tokenRw: _b, tokenOrder: _c, ...rest } = plain as TursoConfig
+  void _a; void _b; void _c
+  return {
+    ...EMPTY,
+    ...rest,
+    tokenRo: SECRETS?.tokenRo ?? '',
+    tokenRw: SECRETS?.tokenRw ?? '',
+    tokenOrder: SECRETS?.tokenOrder ?? '',
+  }
 }
 
 export function tursoSecretsLoaded() { return HYDRATED }
@@ -62,7 +70,9 @@ export function tursoSecretsLoaded() { return HYDRATED }
 export async function hydrateTurso(): Promise<boolean> {
   try {
     const sec = await openSecrets(SECRET_NAME)
-    if (sec) SECRETS = { tokenRo: sec.tokenRo ?? '', tokenRw: sec.tokenRw ?? '' }
+    // KHÔNG ghi đè bí mật đã nạp trong phiên này (tránh trường hợp vừa mở link xong
+    // lại bị lần giải mã cũ ghi đè bằng chuỗi rỗng → mất token).
+    if (sec && !SECRETS) SECRETS = { tokenRo: sec.tokenRo ?? '', tokenRw: sec.tokenRw ?? '', tokenOrder: sec.tokenOrder ?? '' }
   } catch { /* chưa cấu hình */ }
   HYDRATED = true
   return !!SECRETS
@@ -74,14 +84,15 @@ export function saveTurso(cfg: TursoConfig) {
     url: (cfg.url ?? '').trim().replace(/\/+$/, ''),
     tokenRo: (cfg.tokenRo ?? '').trim(),
     tokenRw: (cfg.tokenRw ?? '').trim(),
+    tokenOrder: (cfg.tokenOrder ?? '').trim(),
   }
-  SECRETS = { tokenRo: clean.tokenRo, tokenRw: clean.tokenRw }
+  SECRETS = { tokenRo: clean.tokenRo, tokenRw: clean.tokenRw, tokenOrder: clean.tokenOrder }
   const plain = {
     url: clean.url, enabled: clean.enabled, lastSeq: clean.lastSeq,
     lastSync: clean.lastSync, lastRows: clean.lastRows,
   }
   localStorage.setItem(KEY, JSON.stringify(plain))
-  void sealSecrets({ tokenRo: clean.tokenRo, tokenRw: clean.tokenRw }, SECRET_NAME)
+  void sealSecrets({ tokenRo: clean.tokenRo, tokenRw: clean.tokenRw, tokenOrder: clean.tokenOrder }, SECRET_NAME)
 }
 
 export function forgetTurso() {
@@ -93,7 +104,34 @@ export function forgetTurso() {
 
 /** Đã đủ thông tin để đồng bộ qua Turso chưa. */
 export function tursoReady(cfg: TursoConfig = loadTurso()): boolean {
-  return !!cfg.url && !!(cfg.tokenRo || cfg.tokenRw)
+  return !!cfg.url && !!(cfg.tokenRo || cfg.tokenRw || cfg.tokenOrder)
+}
+
+/**
+ * Quyền ghi của máy:
+ *  'full'  = token ghi đầy đủ (máy của chủ chuỗi)
+ *  'order' = token hạn chế: chỉ thêm/sửa đơn & khách (máy thu ngân / đối tác đặt hàng)
+ *  'read'  = chỉ đọc
+ */
+export function tursoWriteMode(cfg: TursoConfig = loadTurso()): 'full' | 'order' | 'read' {
+  if (cfg.tokenRw) return 'full'
+  if (cfg.tokenOrder) return 'order'
+  return 'read'
+}
+
+/** Bảng mà token "đặt hàng" được phép ghi (khớp với quyền đã cấp cho token Turso). */
+export const ORDER_WRITABLE = [
+  'orders', 'order_items', 'order_item_toppings', 'payments', 'order_events',
+  'customers', 'customer_addresses', 'loyalty_accounts', 'loyalty_ledger',
+  'shifts', 'shift_cash_txns', 'dining_tables', 'print_jobs',
+]
+
+/** Bảng được phép đẩy lên Turso theo quyền hiện tại của máy. */
+export function pushableTables(cfg: TursoConfig = loadTurso()): string[] {
+  const mode = tursoWriteMode(cfg)
+  if (mode === 'full') return orderedTables()
+  if (mode === 'order') return orderedTables().filter((t) => ORDER_WRITABLE.includes(t))
+  return []
 }
 
 /** Thứ tự an toàn theo khoá ngoại: cha trước con (SYNC_ORDER), phần còn lại xếp sau. */
@@ -104,15 +142,16 @@ export function orderedTables(): string[] {
 }
 
 /** Token nào dùng được: ưu tiên token ghi (máy của chủ), không có thì token đọc. */
-const tokenOf = (cfg: TursoConfig) => (cfg.tokenRw || cfg.tokenRo || '').trim()
+const tokenOf = (cfg: TursoConfig) => (cfg.tokenRw || cfg.tokenOrder || cfg.tokenRo || '').trim()
 
 /** Mã hiện tại có quyền ghi không (false = máy đang ở chế độ chỉ xem). */
 export function tursoCanWrite(cfg: TursoConfig = loadTurso()): boolean {
-  return !!cfg.tokenRw
+  return !!(cfg.tokenRw || cfg.tokenOrder)
 }
 
 export function tursoClient(cfg: TursoConfig = loadTurso(), mode: 'auto' | 'ro' = 'auto'): Libsql {
-  const token = mode === 'ro' ? (cfg.tokenRo || cfg.tokenRw) : tokenOf(cfg)
+  const anyToken = cfg.tokenRo || cfg.tokenRw || cfg.tokenOrder || tokenOf(cfg)
+  const token = mode === 'ro' ? anyToken : tokenOf(cfg) || anyToken
   return new Libsql({ url: cfg.url, token })
 }
 
@@ -497,7 +536,10 @@ export async function pushOutbox(cfg: TursoConfig = loadTurso()): Promise<{ rows
 
   const db = tursoClient(cfg)
   const order = orderedTables()
-  const tables = [...dirty.keys()].sort((a, b) => order.indexOf(a) - order.indexOf(b))
+  const allowed = new Set(pushableTables(cfg))
+  const tables = [...dirty.keys()]
+    .filter((t) => allowed.has(t)) // token hạn chế: bỏ qua bảng không được cấp quyền
+    .sort((a, b) => order.indexOf(a) - order.indexOf(b))
   let pushed = 0
 
   // 1) thêm/sửa: cha trước con
@@ -529,7 +571,13 @@ export async function pushOutbox(cfg: TursoConfig = loadTurso()): Promise<{ rows
     }
   }
 
-  withSystemWrite(() => runMany([{ sql: `DELETE FROM ${OUTBOX} WHERE seq <= ?`, params: [maxSeq] }], { silent: true }))
+  // Chỉ xoá dấu của những bảng đã đẩy được; bảng ngoài quyền giữ lại để lần sau đẩy bằng máy chủ
+  const pushedTables = new Set(tables)
+  const keep = marks.filter((m) => !pushedTables.has(m.tbl)).map((m) => m.seq)
+  withSystemWrite(() => {
+    if (!keep.length) runMany([{ sql: `DELETE FROM ${OUTBOX} WHERE seq <= ?`, params: [maxSeq] }], { silent: true })
+    else runMany([{ sql: `DELETE FROM ${OUTBOX} WHERE seq <= ? AND tbl IN (${tables.map(() => '?').join(',') || 'NULL'})`, params: [maxSeq, ...tables] }], { silent: true })
+  })
   return { rows: pushed, tables: tables.length }
 }
 

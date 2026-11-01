@@ -74,7 +74,11 @@ export function JoinPage() {
           <div>
             <p className="text-[15px] font-bold text-ink-900 dark:text-ink-50">Matcha POS · Link dùng chung</p>
             <p className="text-[12px] text-ink-500 dark:text-ink-400">
-              {payload ? `${payload.label || 'Chuỗi trà sữa'} · quyền ${payload.mode === 'rw' ? 'làm việc (ghi được)' : 'chỉ xem'}` : 'Đang kiểm tra link'}
+              {payload
+                ? `${payload.label || 'Chuỗi trà sữa'} · quyền ${
+                    payload.mode === 'rw' ? 'làm việc (ghi đầy đủ)' : payload.mode === 'order' ? 'đặt hàng (chỉ ghi đơn & khách)' : 'chỉ xem'
+                  }`
+                : 'Đang kiểm tra link'}
             </p>
           </div>
         </div>

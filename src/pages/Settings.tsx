@@ -13,7 +13,7 @@ import { REALTIME_SQL } from '../lib/realtime'
 import { RLS_SQL } from '../lib/rls'
 import { buildSeedSQL, checkToken, checkWritePermission, cloudCounts, flushCloudSave, keyWarning, loadCloud, localCounts, pullAll, pushAll, refreshWritePermission, saveCloud, testCloud, toPgDDL, tokenPermission, tokenWarning, type CloudConfig, type SyncProgress } from '../lib/cloud'
 import { downloadFile } from '../lib/format'
-import { buildShareLink, mintShareToken, type ShareMode } from '../lib/share'
+import { buildShareLink, mintOrderShare, mintShareToken, type ShareMode } from '../lib/share'
 import { PERM_GROUPS, getRoles, permsOf } from '../lib/permissions'
 import { METHOD_LABEL, cx, formatDateTime, formatVND } from '../lib/format'
 
@@ -566,10 +566,20 @@ function CloudDatabase() {
               <Field label="Người nhận là ai (để đặt tên mã)">
                 <Input value={shareLabel} onChange={(e) => setShareLabel(e.target.value)} placeholder="VD: Quản lý Q3" className="h-9 text-[12.5px]" />
               </Field>
-              <Field label="Quyền của link" hint={shareMode === 'ro' ? 'Chỉ xem: Postgres chặn mọi thao tác ghi — an toàn gửi cho khách/đối tác' : 'Làm việc: người nhận thêm/sửa dữ liệu được (gửi cho nhân viên)'}>
+              <Field
+                label="Quyền của link"
+                hint={
+                  shareMode === 'ro'
+                    ? 'Chỉ xem: máy chủ chặn MỌI thao tác ghi — xem đơn, doanh thu, thực đơn nhưng không thêm/sửa/xoá được gì. An toàn gửi cho khách/đối tác xem báo cáo.'
+                    : shareMode === 'order'
+                      ? 'Đặt hàng: thêm/sửa ĐƠN & KHÁCH nhưng KHÔNG sửa thực đơn, danh mục, kho (cần token ĐẶT HÀNG ở khối Đồng bộ Turso).'
+                      : 'Làm việc: người nhận thêm/sửa mọi dữ liệu (thực đơn, danh mục, kho, nhân sự…) — chỉ gửi cho nhân viên tin cậy.'
+                }
+              >
                 <Select value={shareMode} onChange={(e) => { setShareMode(e.target.value as ShareMode); setShareLink(null) }} className="h-9 text-[12.5px]">
                   <option value="ro">Chỉ xem (chỉ đọc)</option>
                   <option value="rw">Làm việc (được ghi)</option>
+                  <option value="order">Đặt hàng (chỉ ghi đơn &amp; khách)</option>
                 </Select>
               </Field>
             </div>
@@ -579,7 +589,9 @@ function CloudDatabase() {
                 setShareLink(null)
                 try {
                   // Mỗi link cấp 1 mã RIÊNG (thu hồi được từng người), không dùng lại mã của máy này
-                  const r = await mintShareToken(cfg, shareLabel || (shareMode === 'ro' ? 'Link chỉ xem' : 'Link làm việc'), shareMode === 'rw')
+                  const r = shareMode === 'order'
+                    ? mintOrderShare()
+                    : await mintShareToken(cfg, shareLabel || (shareMode === 'ro' ? 'Link chỉ xem' : 'Link làm việc'), shareMode === 'rw')
                   if (!r.ok || !r.token) throw new Error(r.message ?? 'Không tạo được mã chia sẻ')
                   const token = r.token
                   const link = buildShareLink({ url: r.url ?? cfg.url, key: r.key ?? cfg.key, token, mode: shareMode, label: shareLabel })
@@ -599,7 +611,9 @@ function CloudDatabase() {
                 <Input readOnly value={shareLink} className="font-mono text-[10.5px]" onFocus={(e) => e.currentTarget.select()} />
                 <p className="text-[11px] text-ink-500 dark:text-ink-400">
                   Mở link này trên máy/điện thoại khác: app <b>tự cấu hình cloud, tự tải toàn bộ dữ liệu</b> rồi vào màn đăng nhập.
-                  {shareMode === 'ro' && ' Đây là mã CHỈ ĐỌC: người nhận xem được nhưng không sửa/xoá được dữ liệu.'}
+                  {shareMode === 'ro' && ' Đây là token CHỈ ĐỌC: người nhận xem được nhưng Turso chặn mọi thao tác ghi.'}
+                  {shareMode === 'order' && ' Đây là token ĐẶT HÀNG: thêm/sửa đơn & khách được, còn thực đơn/danh mục/kho thì Turso chặn.'}
+                  {shareMode === 'rw' && ' Đây là token GHI ĐẦY ĐỦ: chỉ gửi cho nhân viên tin cậy.'}
                 </p>
                 <a className="text-[11px] text-matcha-700 underline dark:text-matcha-300" href={shareLink} target="_blank" rel="noreferrer">Mở thử link này ↗</a>
               </div>

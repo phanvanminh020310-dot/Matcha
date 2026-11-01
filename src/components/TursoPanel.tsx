@@ -7,7 +7,7 @@ import { CheckCircle2, Cloud, Database, Download, RefreshCw, ShieldCheck, Upload
 import { Badge, Button, Card, CardHeader, Field, Input, Switch } from './ui'
 import { formatDateTime } from '../lib/format'
 import {
-  loadTurso, saveTurso, tursoCanWrite, tursoDelta, tursoPullAll, tursoPushAll, tursoReady, tursoTest,
+  loadTurso, saveTurso, tursoCanWrite, tursoDelta, tursoPullAll, tursoPushAll, tursoReady, tursoTest, tursoWriteMode,
   type SyncProgress, type TursoConfig,
 } from '../lib/turso'
 
@@ -59,6 +59,8 @@ export function TursoPanel() {
 
   const ready = tursoReady(cfg)
   const canWrite = tursoCanWrite(cfg)
+  const mode = tursoWriteMode(cfg)
+  const modeLabel = mode === 'full' ? 'Máy được ghi (đầy đủ)' : mode === 'order' ? 'Máy chỉ ghi đơn & khách' : 'Chỉ xem'
 
   return (
     <Card>
@@ -68,7 +70,7 @@ export function TursoPanel() {
         subtitle="Turso giữ bản chuẩn; máy khác chỉ tải phần thay đổi nên rất nhẹ"
         right={
           <div className="flex items-center gap-2">
-            {ready && <Badge tone={canWrite ? 'green' : 'amber'} dot>{canWrite ? 'Máy được ghi' : 'Chỉ xem'}</Badge>}
+            {ready && <Badge tone={mode === 'full' ? 'green' : mode === 'order' ? 'blue' : 'amber'} dot>{modeLabel}</Badge>}
             <Switch checked={cfg.enabled} onChange={(v) => update({ enabled: v })} label="bật turso" />
           </div>
         }
@@ -84,6 +86,31 @@ export function TursoPanel() {
         <Field label="Token CHỈ ĐỌC" hint="Turso chặn mọi lệnh ghi bằng token này — dùng cho máy xem và link chia sẻ.">
           <Input type="password" value={cfg.tokenRo} placeholder="eyJ…" onChange={(e) => update({ tokenRo: e.target.value })} />
         </Field>
+        <Field
+          label="Token ĐẶT HÀNG (tuỳ chọn)"
+          hint="Token giới hạn theo bảng: chỉ thêm/sửa ĐƠN & KHÁCH, không sửa thực đơn/danh mục. Dùng cho máy thu ngân hoặc đối tác đặt hàng."
+        >
+          <Input type="password" value={cfg.tokenOrder} placeholder="eyJ…" onChange={(e) => update({ tokenOrder: e.target.value })} />
+        </Field>
+        <details className="rounded-xl bg-ink-50 p-2.5 text-[11px] leading-relaxed text-ink-500 dark:bg-ink-800 dark:text-ink-400">
+          <summary className="cursor-pointer font-semibold text-ink-600 dark:text-ink-300">Cách tạo token ĐẶT HÀNG (dán vào Terminal trên máy tính)</summary>
+          <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-all rounded-lg bg-ink-900 p-2 text-[10.5px] text-ink-100">{`turso db tokens create matcha \
+  -p all:data_read \
+  -p orders:data_add,data_update \
+  -p order_items:data_add,data_update \
+  -p order_item_toppings:data_add,data_update \
+  -p payments:data_add,data_update \
+  -p order_events:data_add,data_update \
+  -p customers:data_add,data_update \
+  -p customer_addresses:data_add,data_update \
+  -p loyalty_accounts:data_add,data_update \
+  -p loyalty_ledger:data_add,data_update \
+  -p shifts:data_add,data_update \
+  -p shift_cash_txns:data_add,data_update \
+  -p dining_tables:data_add,data_update \
+  -p print_jobs:data_add,data_update`}</pre>
+          <p className="mt-1">Turso sẽ chặn mọi lệnh ghi vào bảng khác (thực đơn, danh mục, kho…). Không cần sửa gì trong app.</p>
+        </details>
 
         <div className="flex flex-wrap gap-2">
           <Button variant="secondary" icon={<RefreshCw size={15} />} disabled={!ready || busy !== null} onClick={() => run('test')}>
