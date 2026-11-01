@@ -6,6 +6,7 @@
  */
 import { DDL, TABLES } from './schema'
 import { all, runMany, scalar, withSystemWrite, type SqlValue } from './db'
+import { openSecrets, sealSecrets } from './secureStore'
 
 export interface CloudConfig {
   url: string
@@ -21,14 +22,35 @@ export interface CloudConfig {
 
 const KEY = 'matcha.cloud.v1'
 
+const EMPTY: CloudConfig = { url: '', key: '', token: '', autoSync: false, realtime: true, lastSync: null, lastRows: 0 }
+
+/** Bí mật đã giải mã trong phiên này (anon key + mã đồng bộ). Không bao giờ ghi thẳng ra localStorage. */
+let SECRETS: { key: string; token: string } | null = null
+let HYDRATED = false
+
+/** Đọc cấu hình: phần không bí mật lấy từ localStorage, bí mật lấy từ bộ nhớ (sau khi giải mã). */
 export function loadCloud(): CloudConfig {
+  let plain: Partial<CloudConfig> = {}
   try {
     const raw = localStorage.getItem(KEY)
-    if (!raw) return { url: '', key: '', token: '', autoSync: false, realtime: true, lastSync: null, lastRows: 0 }
-    return { url: '', key: '', token: '', autoSync: false, realtime: true, lastSync: null, lastRows: 0, ...JSON.parse(raw) }
-  } catch {
-    return { url: '', key: '', token: '', autoSync: false, realtime: true, lastSync: null, lastRows: 0 }
-  }
+    if (raw) plain = JSON.parse(raw) as Partial<CloudConfig>
+  } catch { /* hỏng dữ liệu → coi như trống */ }
+  const { key: _k, token: _t, ...rest } = plain as CloudConfig
+  void _k; void _t
+  return { ...EMPTY, ...rest, key: SECRETS?.key ?? '', token: SECRETS?.token ?? '' }
+}
+
+/** Đã nạp được bí mật chưa (dùng để biết máy có đủ cấu hình để đồng bộ). */
+export function cloudSecretsLoaded() { return HYDRATED }
+
+/** Gọi 1 lần khi mở app: giải mã anon key + mã đồng bộ từ kho mã hoá của máy. */
+export async function hydrateCloud(): Promise<boolean> {
+  try {
+    const sec = await openSecrets()
+    if (sec) SECRETS = sec
+  } catch { /* không giải mã được → người dùng nhập lại trong Cài đặt */ }
+  HYDRATED = true
+  return !!SECRETS
 }
 
 /** Lỗi đồng bộ gần nhất — lưu lại để banner cảnh báo hiện được cả khi lỗi xảy ra lúc app vừa khởi động. */
@@ -52,31 +74,47 @@ export function clearCloudError() {
   try { localStorage.removeItem(ERR_KEY) } catch { /* bỏ qua */ }
 }
 
+/** Lưu cấu hình: phần bí mật được MÃ HOÁ trước khi ghi xuống localStorage. */
 export function saveCloud(cfg: CloudConfig) {
-  // Cắt khoảng trắng/ký tự xuống dòng khi dán key — lỗi phổ biến nhất khi copy từ Supabase
-  const clean: CloudConfig = { ...cfg, url: cfg.url.trim().replace(/\/+$/, ''), key: cfg.key.trim(), token: (cfg.token ?? '').trim() }
-  localStorage.setItem(KEY, JSON.stringify(clean))
+  const clean: CloudConfig = {
+    ...cfg,
+    url: (cfg.url ?? '').trim().replace(/\/+$/, ''),
+    key: (cfg.key ?? '').trim(),
+    token: (cfg.token ?? '').trim(),
+  }
+  SECRETS = { key: clean.key, token: clean.token }
+  const plain = { url: clean.url, autoSync: clean.autoSync, realtime: clean.realtime, lastSync: clean.lastSync, lastRows: clean.lastRows }
+  localStorage.setItem(KEY, JSON.stringify(plain))
+  void sealSecrets(SECRETS)
+}
+
+/**
+ * Xoá cấu hình khỏi máy (máy trả về trạng thái "chưa cấu hình").
+ * Không xoá dữ liệu nghiệp vụ, chỉ xoá thông tin kết nối.
+ */
+export function forgetCloud() {
+  SECRETS = null
+  HYDRATED = false
+  localStorage.removeItem(KEY)
+  localStorage.removeItem('matcha.cloud.enc')
 }
 
 /** URL cloud đã chuẩn hoá (bỏ /rest/v1, bỏ dấu / cuối). */
 export const normCloudUrl = (url: string) => normUrl(url ?? '')
 
-/** Mã đồng bộ đúng dạng `mk_` + chuỗi hex (khoảng 67 ký tự). */
+/** Mã đồng bộ đúng dạng `mk_` + chuỗi hex. */
 export function tokenLooksValid(token: string): boolean {
   const t = (token ?? '').trim()
   return /^mk_[0-9a-f]{16,}$/i.test(t)
 }
 
-/**
- * Cảnh báo khi ô "Mã đồng bộ" bị dán nhầm thứ khác — đây là lỗi phổ biến nhất
- * (dán anon key vào ô mã) làm máy mới không tải được dữ liệu.
- */
+/** Cảnh báo khi ô "Mã đồng bộ" bị dán nhầm thứ khác (lỗi phổ biến nhất). */
 export function tokenWarning(token: string): string | null {
   const t = (token ?? '').trim()
   if (!t) return 'Chưa nhập mã đồng bộ — cloud đã bật RLS nên KHÔNG đọc được dữ liệu nếu thiếu mã.'
   if (/^eyJ/.test(t) || /^sb_/.test(t)) return 'Ô này đang chứa ANON KEY, không phải mã đồng bộ. Mã đồng bộ bắt đầu bằng “mk_”.'
   if (t.length > 90) return 'Chuỗi này quá dài so với một mã đồng bộ (thường 67 ký tự, bắt đầu bằng mk_). Có thể bạn dán nhầm key.'
-  if (!tokenLooksValid(t)) return 'Mã đồng bộ phải có dạng mk_ + chuỗi hex (ví dụ mk_6cd742698ef8…). Kiểm tra lại xem có dán thiếu/ thừa ký tự.'
+  if (!tokenLooksValid(t)) return 'Mã đồng bộ phải có dạng mk_ + chuỗi hex (ví dụ mk_6cd742698ef8…). Kiểm tra lại xem có dán thiếu/thừa ký tự.'
   return null
 }
 

@@ -250,7 +250,7 @@ Cách xử lý trên máy bị lỗi:
 
 1. Mở **Cài đặt → Cơ sở dữ liệu**.
 2. Ở ô **“Mã đồng bộ (sync token)”**: bấm **Hiện** để xem mình đã dán gì.
-   - Mã đúng **bắt đầu bằng `mk_`**, dài **67 ký tự** (ví dụ `mk_6cd742698ef858d2511780957caba5c9d2f7f038`).
+   - Mã đúng **bắt đầu bằng `mk_`**, dài **67 ký tự** (ví dụ `mk_` + 64 ký tự hex — mã thật KHÔNG bao giờ ghi vào tài liệu/repo).
    - Nếu thấy chuỗi `eyJ…` → đó là **anon key**, dán nhầm ô.
 3. Bấm **“Kiểm tra mã”** → phải hiện ✅ *Mã đồng bộ hợp lệ*.
 4. Bấm **“Kết nối & tải toàn bộ dữ liệu”**.
@@ -287,3 +287,22 @@ Lưu ý:
   (Mã vẫn nằm trong bộ nhớ trình duyệt của chính máy đó — về nguyên tắc người rành kỹ thuật mở DevTools vẫn đọc được, nhưng mã đó **chỉ đọc** nên không sửa được dữ liệu; muốn chặn hẳn thì thu hồi: `sync_tokens.active = false`.)
 - Thu hồi 1 link: Supabase → Table `sync_tokens` → tìm dòng có `label` tương ứng → đặt `active = false`.
 - Link rất dài khi gửi qua một số ứng dụng có thể bị cắt → dùng nút *Copy lại*, hoặc gửi dạng “chỉ mở bằng trình duyệt”.
+
+---
+
+## 13. Bảo mật nhiều lớp (tài khoản quản trị + mã hoá cấu hình)
+
+| Lớp | Nội dung | Chống được gì |
+| --- | --- | --- |
+| 1. Tài khoản quản trị | Mật khẩu **bcrypt lưu trong Postgres** (`admin_accounts`), xác thực qua RPC `admin_login`. Sai 5 lần → **khoá 15 phút**. Phiên 60 phút, lưu `sessionStorage` (đóng tab là mất). | Đoán mật khẩu, dùng chung phiên |
+| 2. Chặn giao diện | Tab **Cơ sở dữ liệu** không tồn tại trong app nếu chưa mở khoá; vào `#/settings` chỉ thấy thẻ “Khu vực được bảo vệ”. | Người dùng thường/khách xem cấu hình |
+| 3. Mã hoá khi lưu | anon key + mã đồng bộ được **mã hoá AES-GCM 256** trước khi ghi localStorage; khoá nằm trong IndexedDB dạng `CryptoKey` **không xuất được** (`extractable = false`). | Mở DevTools, copy localStorage, xem file trình duyệt |
+| 4. Postgres RLS | Mã chỉ-đọc không ghi được; mã ghi theo chi nhánh; app ghi qua header `x-sync-token` | Sửa dữ liệu trái phép từ bất kỳ máy nào |
+| 5. Nhật ký | Mọi lần mở khoá / đổi mật khẩu / đăng nhập sai đều ghi `audit_logs` | Truy vết khi có sự cố |
+
+### Lần đầu / khi quên
+- Tạo tài khoản quản trị: chạy `docs/sql/admin-auth.sql` (đã có sẵn trên cloud của bạn).
+- Đổi mật khẩu: trong app → **Cài đặt → Quản trị CSDL → đăng nhập → Đổi mật khẩu** (tự huỷ mọi phiên cũ).
+- Mã đồng bộ: **không bao giờ** ghi vào repo/tài liệu/screenshot. Lưu ở file riêng trên máy chủ chuỗi; trong app chỉ hiện sau khi đăng nhập quản trị.
+
+> Khi mất máy/đổi người phụ trách: đổi mật khẩu quản trị + `update sync_tokens set active = false where id = …` để thu hồi mã cũ.

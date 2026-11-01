@@ -5,7 +5,7 @@ import { Toaster } from './components/ui'
 import { CloudSyncWatcher } from './components/CloudSyncWatcher'
 import { useApp } from './store/app'
 import { initDatabase, type InitProgress } from './lib/db'
-import { checkWritePermission, clearCloudError, loadCloud, pullAll, saveCloud, setCloudError } from './lib/cloud'
+import { checkWritePermission, clearCloudError, hydrateCloud, loadCloud, pullAll, saveCloud, setCloudError } from './lib/cloud'
 import { setReadOnlyMode } from './lib/db'
 import { ensureRoles } from './lib/permissions'
 import { refreshRbac } from './lib/rbac'
@@ -130,6 +130,9 @@ export default function App() {
         setReady(true)
         // Nếu user đã cấu hình Postgres cloud và bật tự đồng bộ → kéo dữ liệu mới nhất về máy
         const cloud = loadCloud()
+        // Giải mã anon key + mã đồng bộ đã mã hoá trong máy (khoá AES nằm trong IndexedDB)
+        await hydrateCloud()
+
         // LINK CHỈ XEM: kiểm tra quyền ghi 1 lần khi mở app → chặn ghi ở mọi màn hình
         try {
           const canWrite = await checkWritePermission(cloud)

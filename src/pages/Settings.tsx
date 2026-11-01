@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react'
-import { Building2, ClipboardList, Cloud, CreditCard, Database, Download, Eye, Grid3x3, RefreshCw, Save, Share2, Shield, Store, Upload } from 'lucide-react'
+import { Building2, ClipboardList, Cloud, CreditCard, Database, Download, Eye, Grid3x3, Lock, RefreshCw, Save, Share2, Shield, Store, Upload } from 'lucide-react'
 import { getAuditLogs, getBranches, getTables, updateTablePosition } from '../lib/api'
 import { useSql } from '../hooks/useDb'
 import { useApp } from '../store/app'
 import { PageHeader, ResetDataButton } from '../components/layout/AppShell'
+import { AdminGate, LockedNotice } from '../components/AdminGate'
+import { adminChangePassword, adminLogout, adminUnlocked, adminUsername } from '../lib/adminAuth'
 import { Badge, Button, Card, CardHeader, Field, Input, Modal, Select, Switch, Tabs, Textarea } from '../components/ui'
 import { dbSizeBytes, run } from '../lib/db'
 import { REALTIME_SQL } from '../lib/realtime'
@@ -25,6 +27,9 @@ const PERM_LABEL: Record<string, string> = {
 export function SettingsPage() {
   const { branchId, toast } = useApp()
   const [tab, setTab] = useState<'store' | 'tables' | 'rbac' | 'audit' | 'cloud' | 'system'>('store')
+  const [unlocked, setUnlocked] = useState(() => adminUnlocked())
+  const [gateOpen, setGateOpen] = useState(false)
+  const [pwOpen, setPwOpen] = useState(false)
   const branches = useSql(() => getBranches(), [])
   const tables = useSql(() => getTables(branchId), [branchId])
   const audit = useSql(() => getAuditLogs(80), [])
@@ -34,13 +39,35 @@ export function SettingsPage() {
 
   return (
     <div>
-      <PageHeader icon={<Store size={20} />} title="Cài đặt hệ thống" description="Thông tin cửa hàng, sơ đồ bàn, phân quyền, nhật ký và dữ liệu" />
+      <PageHeader icon={<Store size={20} />} title="Cài đặt hệ thống" description="Thông tin cửa hàng, sơ đồ bàn, phân quyền, nhật ký và dữ liệu"
+        actions={
+          unlocked ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="rounded-lg bg-matcha-50 px-2 py-1 text-[11px] font-semibold text-matcha-800 dark:bg-matcha-900/30 dark:text-matcha-200">
+                🔓 Quản trị: {adminUsername() ?? 'admin'}
+              </span>
+              <Button size="sm" variant="ghost" onClick={() => setPwOpen(true)}>Đổi mật khẩu</Button>
+              <Button size="sm" variant="ghost" onClick={async () => { await adminLogout(); setUnlocked(false); setTab('store'); toast({ title: 'Đã khoá khu vực quản trị', tone: 'success' }) }}>Khoá</Button>
+            </div>
+          ) : (
+            <Button size="sm" variant="secondary" icon={<Lock size={14} />} onClick={() => setGateOpen(true)}>Quản trị CSDL</Button>
+          )
+        } />
       <Tabs value={tab} onChange={setTab} className="mb-3" tabs={[
         { value: 'store', label: 'Cửa hàng' }, { value: 'tables', label: 'Sơ đồ bàn' }, { value: 'rbac', label: 'Phân quyền' },
-        { value: 'audit', label: 'Nhật ký' }, { value: 'cloud', label: 'Cơ sở dữ liệu' }, { value: 'system', label: 'Hệ thống' },
+        { value: 'audit', label: 'Nhật ký' },
+        // Tab cơ sở dữ liệu CHỈ xuất hiện sau khi mở khoá bằng tài khoản quản trị
+        ...(unlocked ? [{ value: 'cloud' as const, label: 'Cơ sở dữ liệu 🔒' }] : []),
+        { value: 'system', label: 'Hệ thống' },
       ]} />
 
-      {tab === 'cloud' && <CloudDatabase />}
+      <AdminGate open={gateOpen} onClose={() => setGateOpen(false)} onUnlocked={() => { setUnlocked(true); setTab('cloud') }} />
+
+      {pwOpen && (
+        <ChangeAdminPassword onClose={() => { setPwOpen(false); setUnlocked(adminUnlocked()) }} />
+      )}
+
+      {tab === 'cloud' && (unlocked ? <CloudDatabase /> : <LockedNotice onUnlock={() => setGateOpen(true)} />)}
 
       {tab === 'store' && (
         <div className="grid gap-3 lg:grid-cols-2">
@@ -609,6 +636,41 @@ function CloudDatabase() {
         </Card>
       </div>
     </div>
+  )
+}
+
+function ChangeAdminPassword({ onClose }: { onClose: () => void }) {
+  const { toast } = useApp()
+  const [oldPw, setOldPw] = useState('')
+  const [newPw, setNewPw] = useState('')
+  const [confirm, setConfirm] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  const save = async () => {
+    if (newPw !== confirm) { setErr('Mật khẩu nhập lại không khớp.'); return }
+    setBusy(true); setErr(null)
+    const r = await adminChangePassword(oldPw, newPw)
+    setBusy(false)
+    if (!r.ok) { setErr(r.message ?? 'Không đổi được'); return }
+    toast({ title: 'Đã đổi mật khẩu quản trị', description: 'Mọi phiên quản trị đã bị huỷ — đăng nhập lại bằng mật khẩu mới.', tone: 'success' })
+    onClose()
+  }
+
+  return (
+    <Modal open onClose={onClose} title="Đổi mật khẩu quản trị" footer={
+      <>
+        <Button variant="ghost" onClick={onClose}>Huỷ</Button>
+        <Button variant="primary" disabled={busy} onClick={save}>{busy ? 'Đang lưu…' : 'Đổi mật khẩu'}</Button>
+      </>
+    }>
+      <div className="space-y-3">
+        <Field label="Mật khẩu hiện tại"><Input type="password" value={oldPw} onChange={(e) => setOldPw(e.target.value)} autoComplete="off" /></Field>
+        <Field label="Mật khẩu mới" hint="Tối thiểu 10 ký tự, nên có chữ hoa, số và ký tự đặc biệt."><Input type="password" value={newPw} onChange={(e) => setNewPw(e.target.value)} autoComplete="off" /></Field>
+        <Field label="Nhập lại mật khẩu mới"><Input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="off" /></Field>
+        {err && <p className="rounded-xl bg-rose-50 p-2 text-[11.5px] text-rose-700 dark:bg-rose-900/20 dark:text-rose-200">{err}</p>}
+      </div>
+    </Modal>
   )
 }
 

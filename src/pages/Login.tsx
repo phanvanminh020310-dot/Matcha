@@ -6,6 +6,8 @@ import { getUserByEmail, getUsers } from '../lib/api'
 import { useSql } from '../hooks/useDb'
 import {type Role} from '../lib/rbac'
 import { Button, Field, Input } from '../components/ui'
+import { AdminGate } from '../components/AdminGate'
+import { adminUnlocked } from '../lib/adminAuth'
 import { cx, ROLE_LABEL } from '../lib/format'
 
 const FEATURES = [
@@ -24,6 +26,8 @@ export function LoginPage() {
   const [password, setPassword] = useState('123456')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
+  const [gateOpen, setGateOpen] = useState(false)
+  const [unlocked, setUnlocked] = useState(() => adminUnlocked())
 
   const demoUsers = useMemo(() => {
     const wanted: Role[] = ['owner', 'manager', 'cashier', 'barista', 'accountant']
@@ -53,6 +57,8 @@ export function LoginPage() {
   }
 
   return (
+    <>
+    <AdminGate open={gateOpen} onClose={() => setGateOpen(false)} onUnlocked={() => setUnlocked(true)} />
     <div className="grid min-h-dvh bg-cream-100 lg:grid-cols-[1.05fr_1fr] dark:bg-ink-950">
       {/* -------- brand panel -------- */}
       <div className="relative hidden flex-col justify-between overflow-hidden bg-matcha-800 p-10 text-white lg:flex">
@@ -172,10 +178,17 @@ export function LoginPage() {
           <p className="mt-6 flex items-start gap-2 rounded-xl bg-ink-100/70 p-3 text-[11.5px] leading-relaxed text-ink-500 dark:bg-ink-900 dark:text-ink-400">
             <ShieldCheck size={14} className="mt-0.5 shrink-0 text-matcha-600" />
             Đây là bản demo: mật khẩu lưu dạng plaintext và toàn bộ dữ liệu nằm trong IndexedDB của trình duyệt bạn.
+            <span className="mt-2 block">
+              Thông tin kết nối cơ sở dữ liệu chỉ mở được bằng <b>tài khoản quản trị riêng</b>:{' '}
+              <button className="font-semibold text-matcha-700 underline dark:text-matcha-300" onClick={() => setGateOpen(true)}>
+                {unlocked ? '✅ đã mở khoá — vào Cài đặt → Cơ sở dữ liệu' : 'mở khoá quản trị CSDL'}
+              </button>
+            </span>
             Không nhập dữ liệu thật.
           </p>
         </div>
       </div>
     </div>
+    </>
   )
 }
