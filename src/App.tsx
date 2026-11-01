@@ -117,10 +117,16 @@ export default function App() {
         // Nếu user đã cấu hình Postgres cloud và bật tự đồng bộ → kéo dữ liệu mới nhất về máy
         const cloud = loadCloud()
         if (cloud.autoSync && cloud.url && cloud.key) {
+          console.info('[matcha][cloud] auto-pull bắt đầu', cloud.url)
           try {
-            const res = await pullAll(cloud)
+            const res = await pullAll(cloud, (p) => { if (!p.done) console.info(`[matcha][cloud] ${p.table} ${p.rows}`) })
+            console.info('[matcha][cloud] auto-pull xong', res.rows, 'dòng')
             if (res.rows > 0) window.dispatchEvent(new CustomEvent('matcha:db-refresh'))
-          } catch { /* offline: vẫn dùng dữ liệu IndexedDB */ }
+          } catch (e) {
+            console.warn('[matcha][cloud] auto-pull lỗi:', (e as Error).message)
+          }
+        } else {
+          console.info('[matcha][cloud] chưa cấu hình auto-sync', { autoSync: cloud.autoSync, url: !!cloud.url, key: !!cloud.key })
         }
       })
       .catch((e) => { if (mounted) setError(String(e)) })

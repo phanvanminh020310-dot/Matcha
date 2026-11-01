@@ -128,6 +128,8 @@ Chi nhánh chuyển được ở góc trên phải: **Q1 · TP.HCM**, **Q3 · TP
 - Bật *Tự tải dữ liệu từ cloud khi mở app* → nhiều máy dùng chung một CSDL; khi chưa cấu hình, app vẫn chạy offline trên **SQLite WASM + IndexedDB** (không mất tính năng).
 - File mẫu: `docs/sql/schema.postgres.sql` (đã kiểm tra cú pháp bằng parser PostgreSQL).
 - **Hướng dẫn bật Supabase từng bước (7 bước, kèm xử lý sự cố): [`docs/huong-dan-supabase.md`](docs/huong-dan-supabase.md)**
+- **Trạng thái thực tế**: một project Supabase (region Singapore, PostgreSQL 17) đã được tạo và nạp sẵn **60.854 dòng / 33 bảng**, kiểm tra 47 khoá ngoại không có dòng mồ côi. Để dùng, chỉ cần dán `Project URL` + `anon key` vào *Cài đặt → Cơ sở dữ liệu* rồi bấm **Tải từ cloud**.
+- **Cơ chế đồng bộ**: *Đẩy dữ liệu lên* = UPSERT theo khoá chính (an toàn, không mất dữ liệu nếu đứt mạng); *Xoá & đẩy lại* = xoá sạch cloud rồi nạp lại (dùng khi cloud bị lệch); *Tải từ cloud* = kéo toàn bộ, phân trang 500 dòng/lần theo đúng khoá chính (kể cả bảng khoá ghép như `product_toppings`).
 
 ### Data Explorer (dành cho dân kỹ thuật)
 - Danh sách **28 bảng** theo module kèm số dòng & dung lượng CSDL.

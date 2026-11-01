@@ -78,8 +78,33 @@ COMMIT;
 `
 }
 
-const PK: Record<string, string> = { app_meta: 'key' }
-const pkOf = (table: string) => PK[table] ?? 'id'
+/**
+ * Khoá chính thật của từng bảng (đọc từ SQLite): có bảng không có cột `id`
+ * (vd product_toppings dùng khoá ghép product_id + topping_id) → phải order theo PK thật
+ * thì phân trang của PostgREST mới ổn định.
+ */
+function pkCols(table: string): string[] {
+  try {
+    const cols = all<{ name: string; pk: number }>(`PRAGMA table_info(${table})`)
+    const keys = cols.filter((c) => Number(c.pk) > 0).sort((a, b) => Number(a.pk) - Number(b.pk)).map((c) => c.name)
+    if (keys.length) return keys
+  } catch { /* bảng chưa tồn tại */ }
+  return ['id']
+}
+const pkOf = (table: string) => pkCols(table)[0]
+
+/**
+ * Thứ tự nạp đúng phụ thuộc khoá ngoại (cha trước con) — SQLite bật PRAGMA foreign_keys
+ * nên nạp sai thứ tự sẽ vi phạm FK ngay (vd orders cần dining_tables/shifts/customers trước).
+ */
+export const SYNC_ORDER = [
+  'branches', 'users', 'categories', 'products', 'product_sizes', 'toppings', 'product_toppings',
+  'suppliers', 'ingredients', 'recipes', 'inventory_stock', 'inventory_txns',
+  'purchase_orders', 'purchase_order_items', 'dining_tables', 'customers', 'vouchers', 'promotions',
+  'shifts', 'shift_cash_txns', 'orders', 'order_items', 'order_item_toppings', 'payments', 'order_events',
+  'finance_entries', 'audit_logs', 'deliveries', 'delivery_events', 'bank_accounts',
+  'print_templates', 'print_jobs', 'app_meta',
+] as const
 
 /* ------------------------------ Seed SQL ------------------------------ */
 
@@ -136,7 +161,7 @@ export async function testCloud(cfg: CloudConfig) {
     if (!probe.ok) return { ok: false, message: `Bảng branches lỗi HTTP ${probe.status}`, latency }
     const rows = await probe.json()
     const count = Array.isArray(rows) ? rows.length : 0
-    return { ok: true, message: count > 0 ? `Kết nối tốt · bảng branches có ${count} dòng (đã có dữ liệu)` : 'Kết nối tốt · bảng branches đã tạo nhưng còn trống — hãy bấm “Đẩy dữ liệu lên”', latency }
+    return { ok: true, message: count > 0 ? 'Kết nối tốt · bảng branches đã có dữ liệu' : 'Kết nối tốt · bảng branches đã tạo nhưng còn trống — hãy bấm “Đẩy dữ liệu lên”', latency }
   } catch (e) {
     return { ok: false, message: `Không kết nối được: ${(e as Error).message}` }
   }
@@ -144,22 +169,40 @@ export async function testCloud(cfg: CloudConfig) {
 
 export interface SyncProgress { table: string; index: number; total: number; rows: number; done?: boolean }
 
-/** Đẩy toàn bộ dữ liệu cục bộ lên Postgres (xoá rồi ghi lại từng bảng, đúng thứ tự khoá ngoại). */
-export async function pushAll(cfg: CloudConfig, onProgress?: (p: SyncProgress) => void) {
+/**
+ * Đẩy dữ liệu cục bộ lên Postgres.
+ *  • mode 'merge' (mặc định): UPSERT theo khoá chính — an toàn, không bao giờ làm mất dữ liệu
+ *    trên cloud nếu mạng đứt giữa chừng.
+ *  • mode 'replace': xoá sạch (con → cha) rồi nạp lại — dùng khi muốn cloud khớp 100% với máy.
+ */
+export async function pushAll(cfg: CloudConfig, onProgress?: (p: SyncProgress) => void, mode: 'merge' | 'replace' = 'merge') {
   const base = normUrl(cfg.url)
+  const meta = (name: string) => TABLES.find((t) => t.name === name) ?? { name, label: name }
+  const steps = mode === 'replace' ? SYNC_ORDER.length * 2 : SYNC_ORDER.length
+
+  if (mode === 'replace') {
+    for (let i = 0; i < SYNC_ORDER.length; i++) {
+      const name = SYNC_ORDER[SYNC_ORDER.length - 1 - i]
+      onProgress?.({ table: `xoá ${name}`, index: i + 1, total: steps, rows: 0 })
+      const res = await fetch(`${base}/rest/v1/${name}?${pkOf(name)}=not.is.null`, { method: 'DELETE', headers: headers(cfg) })
+      if (!res.ok && res.status !== 404) {
+        throw new Error(`Xoá ${name} thất bại: HTTP ${res.status} ${(await res.text()).slice(0, 140)}`)
+      }
+    }
+  }
+
   let total = 0
-  for (let i = 0; i < TABLES.length; i++) {
-    const t = TABLES[i]
+  for (let i = 0; i < SYNC_ORDER.length; i++) {
+    const t = meta(SYNC_ORDER[i])
     const rows = all<Record<string, unknown>>(`SELECT * FROM ${t.name}`)
-    onProgress?.({ table: t.name, index: i + 1, total: TABLES.length, rows: rows.length })
+    const index = (mode === 'replace' ? SYNC_ORDER.length : 0) + i + 1
+    onProgress?.({ table: t.name, index, total: steps, rows: rows.length })
     if (!rows.length) continue
-    const pk = pkOf(t.name)
-    const del = await fetch(`${base}/rest/v1/${t.name}?${pk}=not.is.null`, { method: 'DELETE', headers: headers(cfg) })
-    if (!del.ok && del.status !== 404) throw new Error(`Xoá ${t.name} thất bại: HTTP ${del.status} ${(await del.text()).slice(0, 120)}`)
+    const onConflict = pkCols(t.name).join(',')
     const chunk = 200
     for (let c = 0; c < rows.length; c += chunk) {
       const slice = rows.slice(c, c + chunk)
-      const res = await fetch(`${base}/rest/v1/${t.name}`, {
+      const res = await fetch(`${base}/rest/v1/${t.name}?on_conflict=${onConflict}`, {
         method: 'POST',
         headers: headers(cfg, { Prefer: 'return=minimal,resolution=merge-duplicates' }),
         body: JSON.stringify(slice),
@@ -168,9 +211,9 @@ export async function pushAll(cfg: CloudConfig, onProgress?: (p: SyncProgress) =
       total += slice.length
     }
   }
-  onProgress?.({ table: 'xong', index: TABLES.length, total: TABLES.length, rows: total, done: true })
-  const cfg2: CloudConfig = { ...cfg, lastSync: new Date().toISOString(), lastRows: total }
-  saveCloud(cfg2)
+
+  onProgress?.({ table: 'xong', index: steps, total: steps, rows: total, done: true })
+  saveCloud({ ...cfg, lastSync: new Date().toISOString(), lastRows: total })
   return { rows: total }
 }
 
@@ -180,13 +223,19 @@ export async function pullAll(cfg: CloudConfig, onProgress?: (p: SyncProgress) =
   let total = 0
   const results: { table: string; rows: number }[] = []
   const PAGE = 500 // Supabase/PostgREST giới hạn số dòng mỗi request → phải phân trang bằng Range
+  const meta = (name: string) => TABLES.find((t) => t.name === name) ?? { name, label: name }
+  // xoá sạch theo thứ tự ngược (con trước, cha sau) để không vướng khoá ngoại
+  for (const name of [...SYNC_ORDER].reverse()) {
+    runMany([{ sql: `DELETE FROM ${name}`, params: [] as SqlValue[] }])
+  }
 
-  for (let i = 0; i < TABLES.length; i++) {
-    const t = TABLES[i]
-    const pk = pkOf(t.name)
+  for (let i = 0; i < SYNC_ORDER.length; i++) {
+    const t = meta(SYNC_ORDER[i])
+    const orderKeys = pkCols(t.name)
+    const orderBy = orderKeys.map((c) => `${c}.asc`).join(',')
     const rows: Record<string, unknown>[] = []
     for (let from = 0; from < 200000; from += PAGE) {
-      const res = await fetch(`${base}/rest/v1/${t.name}?select=*&order=${pk}.asc`, {
+      const res = await fetch(`${base}/rest/v1/${t.name}?select=*&order=${orderBy}`, {
         headers: headers(cfg, { Range: `${from}-${from + PAGE - 1}`, 'Range-Unit': 'items' }),
         signal: AbortSignal.timeout(30000),
       })
@@ -196,13 +245,12 @@ export async function pullAll(cfg: CloudConfig, onProgress?: (p: SyncProgress) =
       }
       const batch = (await res.json()) as Record<string, unknown>[]
       rows.push(...batch)
-      onProgress?.({ table: t.name, index: i + 1, total: TABLES.length, rows: rows.length })
+      onProgress?.({ table: t.name, index: i + 1, total: SYNC_ORDER.length, rows: rows.length })
       if (batch.length < PAGE) break
     }
     if (!rows.length) { results.push({ table: t.name, rows: 0 }); continue }
     const cols = Object.keys(rows[0])
     const statements = [
-      { sql: `DELETE FROM ${t.name}`, params: [] as SqlValue[] },
       ...rows.map((r) => ({
         sql: `INSERT INTO ${t.name} (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`,
         params: cols.map((c) => {

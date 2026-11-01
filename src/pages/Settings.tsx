@@ -239,6 +239,18 @@ function CloudDatabase() {
             <Button icon={<Download size={15} />} disabled={!!busy || !cfg.url} onClick={() => runSync('pull')}>
               {busy === 'pull' ? 'Đang tải…' : 'Tải từ cloud'}
             </Button>
+            <Button variant="ghost" icon={<RefreshCw size={15} />} disabled={!!busy || !cfg.url} onClick={async () => {
+              if (!confirm('Xoá toàn bộ dữ liệu trên cloud rồi nạp lại từ máy này? Dùng khi cloud bị lệch.')) return
+              setBusy('push')
+              setProgress(null)
+              try {
+                const res = await pushAll(cfg, setProgress, 'replace')
+                setCfg(loadCloud())
+                toast({ title: 'Đã ghi đè cloud bằng dữ liệu máy này', description: `${res.rows.toLocaleString('vi-VN')} dòng`, tone: 'success' })
+              } catch (e) {
+                toast({ title: 'Ghi đè thất bại', description: (e as Error).message.slice(0, 160), tone: 'error' })
+              } finally { setBusy(null); setProgress(null) }
+            }}>Xoá &amp; đẩy lại</Button>
           </div>
           {result && (
             <div className={cx('rounded-xl p-2.5 text-[11.5px]', result.ok ? 'bg-matcha-50 text-matcha-800 dark:bg-matcha-900/20 dark:text-matcha-200' : 'bg-rose-50 text-rose-700 dark:bg-rose-900/20')}>
