@@ -5,7 +5,8 @@ import { Toaster } from './components/ui'
 import { CloudSyncWatcher } from './components/CloudSyncWatcher'
 import { useApp } from './store/app'
 import { initDatabase, type InitProgress } from './lib/db'
-import { clearCloudError, loadCloud, pullAll, saveCloud, setCloudError } from './lib/cloud'
+import { checkWritePermission, clearCloudError, loadCloud, pullAll, saveCloud, setCloudError } from './lib/cloud'
+import { setReadOnlyMode } from './lib/db'
 import { ensureRoles } from './lib/permissions'
 import { refreshRbac } from './lib/rbac'
 import { LoginPage } from './pages/Login'
@@ -129,6 +130,16 @@ export default function App() {
         setReady(true)
         // Nếu user đã cấu hình Postgres cloud và bật tự đồng bộ → kéo dữ liệu mới nhất về máy
         const cloud = loadCloud()
+        // LINK CHỈ XEM: kiểm tra quyền ghi 1 lần khi mở app → chặn ghi ở mọi màn hình
+        try {
+          const canWrite = await checkWritePermission(cloud)
+          setReadOnlyMode(canWrite === false)
+          if (canWrite === false) {
+            console.info('[matcha][cloud] chế độ CHỈ XEM — đã chặn thao tác ghi')
+            window.dispatchEvent(new CustomEvent('matcha:readonly', { detail: true }))
+          }
+        } catch { /* không kiểm tra được → coi như bình thường */ }
+
         // Máy mới (chưa từng tải) mà đã có cấu hình cloud → tự tải ngay lần đầu,
         // không cần người dùng nhớ bật "tự đồng bộ".
         const firstRun = !cloud.lastSync && !!cloud.token

@@ -484,12 +484,10 @@ function CloudDatabase() {
                 setShareBusy(true)
                 setShareLink(null)
                 try {
-                  let token = (cfg.token ?? '').trim()
-                  if (shareMode === 'ro') {
-                    const r = await mintShareToken(cfg, shareLabel || 'Link chỉ xem', false)
-                    if (!r.ok || !r.token) throw new Error(r.message ?? 'Không tạo được mã chỉ đọc')
-                    token = r.token
-                  }
+                  // Mỗi link cấp 1 mã RIÊNG (thu hồi được từng người), không dùng lại mã của máy này
+                  const r = await mintShareToken(cfg, shareLabel || (shareMode === 'ro' ? 'Link chỉ xem' : 'Link làm việc'), shareMode === 'rw')
+                  if (!r.ok || !r.token) throw new Error(r.message ?? 'Không tạo được mã chia sẻ')
+                  const token = r.token
                   const link = buildShareLink({ url: cfg.url, key: cfg.key, token, mode: shareMode, label: shareLabel })
                   setShareLink(link)
                   await navigator.clipboard.writeText(link).catch(() => { /* trình duyệt chặn clipboard */ })

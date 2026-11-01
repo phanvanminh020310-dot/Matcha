@@ -215,8 +215,43 @@ export function scalar<T = number>(sql: string, params: SqlValue[] = []): T | nu
   return (first as unknown as T) ?? null
 }
 
+/* ------------------------------ chế độ chỉ xem ------------------------------ */
+/**
+ * Máy mở bằng LINK CHỈ XEM: dữ liệu vẫn xem được nhưng **không ghi** — nếu cho ghi
+ * cục bộ thì người dùng tưởng đã lưu, trong khi cloud từ chối và lần tải sau sẽ xoá mất.
+ * Chặn ngay từ tầng CSDL để mọi màn hình đều bị chặn như nhau.
+ */
+export class ReadOnlyError extends Error {
+  constructor() {
+    super('Chế độ chỉ xem: thao tác thêm/sửa/xoá đã bị chặn. Liên hệ chủ chuỗi để lấy link "Làm việc (được ghi)".')
+    this.name = 'ReadOnlyError'
+  }
+}
+
+let readOnlyMode = false
+let systemWrites = 0
+
+export function setReadOnlyMode(v: boolean) { readOnlyMode = v }
+export function isReadOnlyMode() { return readOnlyMode }
+
+/** Cho phép ghi trong lúc hệ thống tự cập nhật (seed, migration, tải từ cloud, tạo vai trò mặc định). */
+export function withSystemWrite<T>(fn: () => T): T {
+  systemWrites++
+  try { return fn() } finally { systemWrites-- }
+}
+
+export async function withSystemWriteAsync<T>(fn: () => Promise<T>): Promise<T> {
+  systemWrites++
+  try { return await fn() } finally { systemWrites-- }
+}
+
+function assertWritable() {
+  if (readOnlyMode && systemWrites === 0) throw new ReadOnlyError()
+}
+
 /** Ghi dữ liệu: tự động phát sự kiện + đánh dấu cần lưu IndexedDB. */
 export function run(sql: string, params: SqlValue[] = [], opts: { silent?: boolean } = {}) {
+  assertWritable()
   getDb().run(sql, params)
   if (!opts.silent) {
     persist()
@@ -225,6 +260,7 @@ export function run(sql: string, params: SqlValue[] = [], opts: { silent?: boole
 }
 
 export function runMany(statements: { sql: string; params?: SqlValue[] }[], opts: { silent?: boolean } = {}) {
+  assertWritable()
   const database = getDb()
   database.run('BEGIN')
   try {

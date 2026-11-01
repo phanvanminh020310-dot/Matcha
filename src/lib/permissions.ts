@@ -3,7 +3,7 @@
  * Quyền lưu trong bảng `roles.perms` (chuỗi phân cách bằng dấu phẩy) nên thêm/sửa
  * quyền của vai trò không cần build lại app.
  */
-import { all, run, scalar } from './db'
+import { all, run, scalar, withSystemWrite } from './db'
 
 export interface PermGroup {
   module: string
@@ -125,10 +125,12 @@ export function ensureRoles() {
     const count = scalar<number>('SELECT COUNT(*) FROM roles') ?? 0
     if (count > 0) return
     const now = new Date().toISOString()
-    for (const r of DEFAULT_ROLES) {
-      run(`INSERT INTO roles (id, name, description, perms, is_system, color, created_at) VALUES (?,?,?,?,?,?,?)`,
-        [r.id, r.name, r.description, r.perms.join(','), r.is_system ? 1 : 0, r.color, now], { silent: true })
-    }
+    withSystemWrite(() => {
+      for (const r of DEFAULT_ROLES) {
+        run(`INSERT INTO roles (id, name, description, perms, is_system, color, created_at) VALUES (?,?,?,?,?,?,?)`,
+          [r.id, r.name, r.description, r.perms.join(','), r.is_system ? 1 : 0, r.color, now], { silent: true })
+      }
+    })
     console.info('[matcha] đã tạo', DEFAULT_ROLES.length, 'vai trò mặc định')
   } catch (e) {
     console.warn('[matcha] ensureRoles:', (e as Error).message)

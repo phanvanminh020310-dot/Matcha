@@ -5,7 +5,7 @@
  * • Không có key thì app vẫn chạy offline trên SQLite WASM; cloud là nơi lưu bền nhiều máy
  */
 import { DDL, TABLES } from './schema'
-import { all, runMany, scalar, type SqlValue } from './db'
+import { all, runMany, scalar, withSystemWrite, type SqlValue } from './db'
 
 export interface CloudConfig {
   url: string
@@ -425,7 +425,7 @@ export async function pullAll(cfg: CloudConfig, onProgress?: (p: SyncProgress) =
       })
     }
   }
-  runMany(statements)
+  withSystemWrite(() => runMany(statements))
 
   saveCloud({ ...cfg, lastSync: new Date().toISOString(), lastRows: total })
   onProgress?.({ table: 'xong', index: SYNC_ORDER.length, total: SYNC_ORDER.length, rows: total, done: true })

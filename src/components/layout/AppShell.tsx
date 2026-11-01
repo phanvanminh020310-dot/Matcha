@@ -14,6 +14,7 @@ import { cx, normalize, ROLE_LABEL } from '../../lib/format'
 import { Badge, Button, IconButton, Kbd } from '../ui'
 import { resetDatabase } from '../../lib/db'
 import { checkWritePermission, loadCloud } from '../../lib/cloud'
+import { isReadOnlyMode } from '../../lib/db'
 
 const ICONS: Record<string, React.ComponentType<{ size?: number | string; className?: string }>> = {
   ShoppingCart, ChefHat, MonitorPlay, ReceiptText, LayoutDashboard, Boxes, Truck, CupSoda, BookOpenCheck,
@@ -34,8 +35,37 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     if (!cfg.url || !cfg.key) return
     let alive = true
     void checkWritePermission(cfg).then((w) => { if (alive && w === false) setReadOnly(true) })
-    return () => { alive = false }
+    const onFlag = (e: Event) => setReaderFlag(e)
+    function setReaderFlag(e: Event) { if ((e as CustomEvent<boolean>).detail) setReadOnly(true) }
+    window.addEventListener('matcha:readonly', onFlag as EventListener)
+    return () => { alive = false; window.removeEventListener('matcha:readonly', onFlag as EventListener) }
   }, [])
+
+  // Bị chặn ghi (ReadOnlyError) ở bất kỳ màn hình nào → hiện thông báo thay vì im lặng
+  const { toast } = useApp()
+  useEffect(() => {
+    const notify = () => {
+      toast({
+        title: 'Chế độ chỉ xem',
+        description: 'Máy này dùng link "Chỉ xem" nên không thêm/sửa/xoá được. Nhờ chủ chuỗi gửi link "Làm việc (được ghi)" nếu cần nhập liệu.',
+        tone: 'error',
+      })
+    }
+    const onRej = (e: PromiseRejectionEvent) => {
+      const msg = String((e.reason as Error)?.message ?? e.reason ?? '')
+      if (/chỉ xem/i.test(msg)) { e.preventDefault(); notify() }
+    }
+    const onErr = (e: ErrorEvent) => { if (/chỉ xem/i.test(String(e.message))) { e.preventDefault(); notify() } }
+    const onBlocked = () => notify()
+    window.addEventListener('unhandledrejection', onRej)
+    window.addEventListener('error', onErr)
+    window.addEventListener('matcha:readonly-block', onBlocked)
+    return () => {
+      window.removeEventListener('unhandledrejection', onRej)
+      window.removeEventListener('error', onErr)
+      window.removeEventListener('matcha:readonly-block', onBlocked)
+    }
+  }, [toast])
 
   const branches = useSql(() => getBranches(), [])
   const branch = branches.find((b) => b.id === branchId) ?? branches[0]
@@ -190,6 +220,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <IconButton label="Đăng xuất" onClick={() => { logout(); navigate('/login') }}><LogOut size={17} /></IconButton>
           </div>
         </header>
+
+        {readOnly && (
+          <div className="flex items-center gap-2 border-b border-amber-200 bg-amber-50 px-3 py-1.5 text-[11.5px] text-amber-900 dark:border-amber-800 dark:bg-amber-900/25 dark:text-amber-100 sm:px-5">
+            <span className="font-semibold">👁 Chế độ chỉ xem</span>
+            <span className="hidden sm:inline">— bạn xem &amp; báo cáo được toàn bộ dữ liệu, nhưng không thêm/sửa/xoá được. Cần nhập liệu: nhờ chủ chuỗi gửi link “Làm việc (được ghi)”.</span>
+            <span className="sm:hidden">— không thêm/sửa/xoá được</span>
+          </div>
+        )}
 
         <main className="min-w-0 flex-1 px-3 pb-10 pt-4 sm:px-5">{children}</main>
       </div>
