@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { CloudLightning, RefreshCw, X } from 'lucide-react'
+import { AlertTriangle, CloudLightning, RefreshCw, X } from 'lucide-react'
 import { loadCloud, pullAll } from '../lib/cloud'
 import { connectRealtime, type RealtimeEvent, type RealtimeHandle } from '../lib/realtime'
 import { Badge, Button } from './ui'
@@ -20,6 +20,7 @@ export function CloudSyncWatcher() {
   const [detail, setDetail] = useState<string | undefined>()
   const [syncing, setSyncing] = useState(false)
   const [hidden, setHidden] = useState(false)
+  const [cloudError, setCloudError] = useState<string | null>(null)
   const eventsRef = useRef<RealtimeEvent[]>([])
 
   useEffect(() => {
@@ -40,12 +41,40 @@ export function CloudSyncWatcher() {
     return () => handle.close()
   }, [])
 
-  if (!events.length || hidden) return null
+  // Lỗi tự đồng bộ (ví dụ: cloud bật RLS mà chưa nhập Mã đồng bộ) → banner cảnh báo
+  useEffect(() => {
+    const onErr = (ev: Event) => setCloudError(String((ev as CustomEvent<string>).detail ?? 'Lỗi đồng bộ cloud'))
+    window.addEventListener('matcha:cloud-error', onErr)
+    return () => window.removeEventListener('matcha:cloud-error', onErr)
+  }, [])
+
+  const errorBanner = cloudError ? (
+    <div className="fixed bottom-4 right-4 z-[91] w-[min(92vw,360px)] rounded-2xl border border-amber-300 bg-amber-50 p-3 shadow-lift dark:border-amber-800 dark:bg-amber-900/30">
+      <div className="flex items-start gap-2">
+        <span className="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-200">
+          <AlertTriangle size={16} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-[12.5px] font-semibold text-amber-900 dark:text-amber-100">Không tự đồng bộ được với cloud</p>
+          <p className="mt-0.5 line-clamp-3 text-[11.5px] leading-snug text-amber-800 dark:text-amber-200">{cloudError}</p>
+          <div className="mt-1.5 flex gap-1.5">
+            <Button size="sm" variant="primary" onClick={() => { location.hash = '#/settings' }}>Mở Cài đặt</Button>
+            <Button size="sm" variant="ghost" onClick={() => setCloudError(null)}>Bỏ qua</Button>
+          </div>
+        </div>
+        <button onClick={() => setCloudError(null)} className="text-amber-500 hover:text-amber-700" aria-label="Đóng"><X size={13} /></button>
+      </div>
+    </div>
+  ) : null
+
+  if (!events.length || hidden) return <>{errorBanner}</>
 
   const byTable = events.reduce<Record<string, number>>((acc, e) => { acc[e.table] = (acc[e.table] ?? 0) + 1; return acc }, {})
   const summary = Object.entries(byTable).slice(0, 3).map(([t, n]) => `${TABLE_LABEL[t] ?? t} ×${n}`).join(' · ')
 
   return (
+    <>
+      {errorBanner}
     <div className="fixed bottom-4 right-4 z-[90] w-[min(92vw,360px)] rounded-2xl border border-sky-200 bg-white p-3 shadow-lift dark:border-sky-800 dark:bg-ink-900">
       <div className="flex items-start gap-2">
         <span className="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-sky-50 text-sky-600 dark:bg-sky-900/30 dark:text-sky-300">
@@ -77,5 +106,6 @@ export function CloudSyncWatcher() {
         <button onClick={() => setHidden(true)} className="text-ink-300 hover:text-ink-600" aria-label="Đóng"><X size={13} /></button>
       </div>
     </div>
+    </>
   )
 }

@@ -124,7 +124,10 @@ export default function App() {
             console.info('[matcha][cloud] auto-pull xong', res.rows, 'dòng')
             if (res.rows > 0) window.dispatchEvent(new CustomEvent('matcha:db-refresh'))
           } catch (e) {
-            console.warn('[matcha][cloud] auto-pull lỗi:', (e as Error).message)
+            const msg = (e as Error).message
+            console.warn('[matcha][cloud] auto-pull lỗi:', msg)
+            // Hiện banner cảnh báo (thường là: cloud bật RLS mà chưa nhập Mã đồng bộ)
+            window.dispatchEvent(new CustomEvent('matcha:cloud-error', { detail: msg }))
           }
         } else {
           console.info('[matcha][cloud] chưa cấu hình auto-sync', { autoSync: cloud.autoSync, url: !!cloud.url, key: !!cloud.key })
