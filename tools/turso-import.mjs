@@ -11,6 +11,7 @@
  *      node tools/turso-import.mjs --all        → tạo schema + trigger + nạp 62.401 dòng
  *      node tools/turso-import.mjs --verify     → đối chiếu số dòng từng bảng
  *      node tools/turso-import.mjs --reset-changes → dọn change-log, seq về 1
+ *      node tools/turso-import.mjs --wipe       → xoá sạch dữ liệu (nạp lại từ đầu)
  */
 import fs from 'node:fs'
 import path from 'node:path'
@@ -145,12 +146,29 @@ async function check(cfg) {
   return { canWrite, corsOk }
 }
 
-async function schema(cfg) {
+async function schema(cfg, withTriggers = true) {
   const base = toHttps(cfg.url)
   const sql = fs.readFileSync(path.join(ROOT, 'docs/sql/turso-schema.sql'), 'utf8')
   const stmts = splitSql(sql).map((s) => ({ sql: s }))
   console.log('• Tạo schema:', stmts.length, 'câu lệnh')
   await runAll(base, cfg.token, stmts, '  schema')
+  if (!withTriggers) return
+  await triggers(cfg)
+}
+
+/** Gỡ hết trigger change-log (dùng khi nạp lại hàng loạt cho nhanh) */
+async function dropTriggers(cfg) {
+  const base = toHttps(cfg.url)
+  const [r] = await pipeline(base, cfg.token, [{ sql: "SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'trg_%'" }])
+  const names = (r.rows ?? []).map((row) => row[0]?.value).filter(Boolean)
+  if (!names.length) return console.log('• Trigger: không có gì để gỡ')
+  await runAll(base, cfg.token, names.map((n) => ({ sql: `DROP TRIGGER IF EXISTS "${n}"` })))
+  console.log('• Gỡ trigger:', names.length)
+}
+
+/** Tạo riêng 231 trigger change-log (đặt SAU khi nạp dữ liệu để không ghi 62.401 dòng rác) */
+async function triggers(cfg) {
+  const base = toHttps(cfg.url)
   const trig = fs.readFileSync(path.join(ROOT, 'docs/sql/turso-changes.sql'), 'utf8')
   const tStmts = splitSql(trig).map((s) => ({ sql: s }))
   console.log('• Tạo change-log triggers:', tStmts.length, 'câu lệnh')
@@ -206,17 +224,70 @@ async function data(cfg) {
   const dataPath = ['/home/user/turso-data.jsonl', path.join(ROOT, 'docs/sql/turso-data.jsonl')].find((f) => fs.existsSync(f))
   if (!dataPath) throw new Error('Thiếu turso-data.jsonl')
   const lines = fs.readFileSync(dataPath, 'utf8').split('\n').filter(Boolean)
-  console.log('• Nạp dữ liệu:', lines.length, 'lô')
-  let done = 0, rows = 0
+  const totalRows = lines.reduce((n, l) => n + JSON.parse(l).rows.length, 0)
+  console.log('• Nạp dữ liệu:', lines.length, 'lô ·', totalRows, 'dòng')
+
+  const MULTI = 40 // số dòng gộp vào 1 câu INSERT (nhanh gấp ~40 lần so với 1 dòng/câu)
+  let done = 0, rows = 0, skipped = 0
+  const t0 = Date.now()
   for (const line of lines) {
     const { table, columns, rows: rws } = JSON.parse(line)
-    const sql = `INSERT INTO "${table}" (${columns.map((c) => `"${c}"`).join(',')}) VALUES (${columns.map(() => '?').join(',')})`
-    await runAll(base, cfg.token, rws.map((r) => ({ sql, args: r })))
-    done++; rows += rws.length
-    if (done % 20 === 0) process.stdout.write(`\r  ${done}/${lines.length} lô · ${rows} dòng   `)
+    const head = `INSERT INTO "${table}" (${columns.map((c) => `"${c}"`).join(',')}) VALUES `
+    const tuple = `(${columns.map(() => '?').join(',')})`
+    const stmts = []
+    for (let i = 0; i < rws.length; i += MULTI) {
+      const part = rws.slice(i, i + MULTI)
+      stmts.push({ sql: head + part.map(() => tuple).join(','), args: part.flat() })
+    }
+    try {
+      await runAll(base, cfg.token, stmts)
+      rows += rws.length
+    } catch (e) {
+      // gộp lô bị lỗi → nạp lại từng dòng để tìm đúng dòng hỏng
+      for (const r of rws) {
+        try {
+          await pipeline(base, cfg.token, [{ sql: head + tuple, args: r }])
+          rows++
+        } catch (e2) {
+          skipped++
+          if (skipped <= 8) console.log(`  ⚠ bỏ 1 dòng ở ${table}: ${String(e2.message).slice(0, 90)}`)
+        }
+      }
+    }
+    done++
+    if (done % 10 === 0) {
+      const sp = rows / Math.max(1, (Date.now() - t0) / 1000)
+      process.stdout.write(`\r  ${done}/${lines.length} lô · ${rows}/${totalRows} dòng · ${sp.toFixed(0)} dòng/s   `)
+    }
   }
-  process.stdout.write(`\r  xong: ${rows} dòng trong ${done} lô            \n`)
+  process.stdout.write(`\r  xong: ${rows} dòng trong ${((Date.now() - t0) / 1000).toFixed(0)} giây${skipped ? ` (bỏ ${skipped} dòng lỗi)` : ''}            \n`)
   await resetChanges(cfg)
+}
+
+/**
+ * Xoá sạch dữ liệu cũ để nạp lại từ đầu.
+ * Thứ tự xoá = NGƯỢC thứ tự nạp (con trước, cha sau) → không vi phạm khoá ngoại.
+ */
+async function wipe(cfg) {
+  const base = toHttps(cfg.url)
+  const order = loadOrder()
+  const expected = readExpected()
+  const all = [...order, ...Object.keys(expected).filter((t) => !order.includes(t))]
+  const del = [...all].reverse().map((t) => ({ sql: `DELETE FROM "${t}"` }))
+  console.log('• Xoá dữ liệu cũ:', del.length, 'bảng')
+  await runAll(base, cfg.token, del, '  wipe')
+  await resetChanges(cfg)
+}
+
+/** Thứ tự nạp an toàn theo khoá ngoại (cha trước, con sau) */
+function loadOrder() {
+  const p = path.join(ROOT, 'docs/sql/turso-load-order.json')
+  return fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, 'utf8')) : []
+}
+
+function readExpected() {
+  const p = ['/home/user/turso-expected.json', path.join(ROOT, 'docs/sql/turso-expected.json')].find((f) => fs.existsSync(f))
+  return p ? JSON.parse(fs.readFileSync(p, 'utf8')) : {}
 }
 
 /** Nạp dữ liệu ban đầu cũng làm trigger ghi 62.401 dòng rác → dọn sạch, đưa seq về 1. */
@@ -233,9 +304,8 @@ async function resetChanges(cfg) {
 
 async function verify(cfg) {
   const base = toHttps(cfg.url)
-  const expPath = ['/home/user/turso-expected.json', path.join(ROOT, 'docs/sql/turso-expected.json')].find((f) => fs.existsSync(f))
-  if (!expPath) throw new Error('Thiếu turso-expected.json')
-  const expected = JSON.parse(fs.readFileSync(expPath, 'utf8'))
+  const expected = readExpected()
+  if (!Object.keys(expected).length) throw new Error('Thiếu turso-expected.json')
   let bad = 0
   for (const [table, n] of Object.entries(expected)) {
     const [r] = await pipeline(base, cfg.token, [{ sql: `SELECT count(*) FROM "${table}"` }])
@@ -254,11 +324,24 @@ if (!cfg.url || !cfg.token) {
 }
 try {
   if (args.includes('--check') || args.length === 0) await check(cfg)
+  if (args.includes('--schema-tables')) { await schema(cfg, false) }
+  if (args.includes('--drop-triggers')) await dropTriggers(cfg)
+  if (args.includes('--triggers')) await triggers(cfg)
   if (args.includes('--schema')) await schema(cfg)
+  if (args.includes('--wipe')) await wipe(cfg)
   if (args.includes('--data')) await data(cfg)
   if (args.includes('--verify')) await verify(cfg)
   if (args.includes('--reset-changes')) await resetChanges(cfg)
-  if (args.includes('--all')) { await schema(cfg); await data(cfg); await verify(cfg) }
+  if (args.includes('--all')) {
+    // thứ tự tối ưu: bảng → xoá → nạp → trigger (tránh 62k dòng rác) → verify
+    await schema(cfg, false)
+    await dropTriggers(cfg)
+    await wipe(cfg)
+    await data(cfg)
+    await triggers(cfg)
+    await resetChanges(cfg)
+    await verify(cfg)
+  }
 } catch (e) {
   console.error('LỖI:', e.message)
   process.exit(1)
