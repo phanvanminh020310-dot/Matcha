@@ -1,6 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Background, Controls, MarkerType, ReactFlow, type Edge, type Node } from '@xyflow/react'
-import '@xyflow/react/dist/style.css'
 import { ArrowDown, ArrowRight, CirclePause, CirclePlay, Footprints, GitCompareArrows, Info, RotateCcw, Sparkles, Workflow, Zap } from 'lucide-react'
 import { SCENARIOS, diff, snapshot, type RowDiff, type SimContext } from '../lib/simulator'
 import { lowStock } from '../lib/api'
@@ -8,10 +6,10 @@ import { all, scalar } from '../lib/db'
 import { useSql } from '../hooks/useDb'
 import { useApp } from '../store/app'
 import { PageHeader } from '../components/layout/AppShell'
-import { Badge, Button, Card, CardHeader, EmptyState, Select, Tabs, Tooltip } from '../components/ui'
+import { Badge, Button, Card, CardHeader, EmptyState, Select, Tooltip } from '../components/ui'
+import { Erp3DScene } from '../components/Erp3DScene'
 import { cx, formatNumber, formatVND, nowVN } from '../lib/format'
 
-type Mode = 'flow' | 'map'
 
 const MODULES: { id: string; label: string; icon: string; color: string; page: string; desc: string }[] = [
   { id: 'pos', label: 'POS', icon: '🧾', color: '#16a34a', page: '/pos', desc: 'Tạo đơn, thanh toán, in hoá đơn' },
@@ -57,7 +55,6 @@ function useLiveStats(branchId: number) {
 
 export function ErpSimulatorPage() {
   const { branchId, user } = useApp()
-  const [mode, setMode] = useState<Mode>('flow')
   const stats = useLiveStats(branchId)
   const [scenarioId, setScenarioId] = useState(SCENARIOS[0].id)
   const [running, setRunning] = useState(false)
@@ -98,14 +95,6 @@ export function ErpSimulatorPage() {
     return () => clearTimeout(t)
   }, [running, stepIndex, speed, runStep, scenario.steps.length])
 
-  const positions = useMemo(() => {
-    if (mode === 'flow') {
-      const order = ['pos', 'kds', 'inventory', 'purchasing', 'finance', 'crm', 'reports', 'data']
-      return Object.fromEntries(order.map((id, i) => [id, { x: (i % 4) * 232, y: Math.floor(i / 4) * 150 }]))
-    }
-    return Object.fromEntries(MODULES.map((m, i) => [m.id, { x: (i % 4) * 232, y: Math.floor(i / 4) * 150 }]))
-  }, [mode])
-
   const nodeStats = (id: string) => {
     switch (id) {
       case 'pos': return [`${stats.orders} đơn hôm nay`, formatVND(stats.revenue, { compact: true })]
@@ -120,49 +109,6 @@ export function ErpSimulatorPage() {
     }
   }
 
-  const nodes: Node[] = MODULES.map((m) => {
-    const active = activeNode === m.id
-    return {
-      id: m.id,
-      position: positions[m.id],
-      data: {
-        label: (
-          <div className="w-[212px] text-left">
-            <div className="flex items-center gap-1.5">
-              <span className="text-[14px]">{m.icon}</span>
-              <span className="text-[12.5px] font-semibold text-ink-900 dark:text-ink-50">{m.label}</span>
-              {active && <span className="ml-auto h-1.5 w-1.5 animate-pulse rounded-full bg-matcha-500" />}
-            </div>
-            <p className="mt-0.5 text-[10px] text-ink-400">{m.desc}</p>
-            <div className="mt-1 space-y-0.5">
-              {nodeStats(m.id).map((s) => <p key={s} className="text-[10.5px] font-medium text-ink-600 dark:text-ink-300">{s}</p>)}
-            </div>
-          </div>
-        ),
-      },
-      style: {
-        width: 228,
-        padding: 8,
-        borderRadius: 14,
-        border: `1.5px solid ${active ? m.color : '#dbe3dd'}`,
-        borderLeft: `4px solid ${m.color}`,
-        background: '#fff',
-        boxShadow: active ? `0 0 0 4px ${m.color}22` : '0 1px 2px rgba(16,24,20,.06)',
-      },
-    }
-  })
-
-  const edges: Edge[] = FLOW_EDGES.map(([from, to], i) => ({
-    id: `${from}-${to}-${i}`,
-    source: from,
-    target: to,
-    animated: activeNode === from || activeNode === to,
-    labelStyle: { fontSize: 9, fill: '#7f8d84' },
-    labelBgStyle: { fill: '#fdfcf8', fillOpacity: 0.9 },
-    style: { stroke: '#c3cfc6', strokeWidth: 1.3 },
-    markerEnd: { type: MarkerType.ArrowClosed, width: 13, height: 13, color: '#c3cfc6' },
-  }))
-
   const latest = log[log.length - 1]
   const latestDiff = [...log].reverse().find((l) => l.diffs.length > 0) ?? latest
   const done = stepIndex >= scenario.steps.length
@@ -173,7 +119,7 @@ export function ErpSimulatorPage() {
         icon={<Workflow size={20} />}
         title="ERP Simulator"
         description="Chạy kịch bản nghiệp vụ trên chính CSDL đang dùng — mỗi bước ghi dữ liệu thật và hiện diff bảng/dòng/trước–sau"
-        actions={<Tabs value={mode} onChange={setMode} tabs={[{ value: 'flow' as Mode, label: 'Luồng dữ liệu' }, { value: 'map' as Mode, label: 'Bản đồ module' }]} />}
+        actions={<Badge tone="green" dot>sơ đồ 3D trực tiếp</Badge>}
       />
 
       <Card className="overflow-hidden">
@@ -188,13 +134,14 @@ export function ErpSimulatorPage() {
             <a href={`#${MODULES.find((m) => m.id === activeNode)?.page ?? '/dashboard'}`} className="text-[11.5px] font-medium text-matcha-700 underline dark:text-matcha-300">Đi tới trang</a>
           )}
         </div>
-        <div className="h-[340px] w-full bg-cream-100/50 dark:bg-ink-950">
-          <ReactFlow nodes={nodes} edges={edges} fitView minZoom={0.3} maxZoom={1.4} proOptions={{ hideAttribution: true }}
-            nodesConnectable={false} onNodeClick={(_, n) => setActiveNode(n.id)} elementsSelectable>
-            <Background gap={18} size={1} color="#d9e2db" />
-            <Controls showInteractive={false} />
-          </ReactFlow>
-        </div>
+        <Erp3DScene
+          height={520}
+          activeId={activeNode}
+          running={running}
+          onSelect={(id) => setActiveNode((cur) => (cur === id ? null : id))}
+          modules={MODULES.map((m) => ({ id: m.id, label: m.label, icon: m.icon, color: m.color, desc: m.desc, stats: nodeStats(m.id) }))}
+          edges={FLOW_EDGES.map(([from, to, label]) => ({ from, to, label }))}
+        />
       </Card>
 
       <div className="mt-3 grid gap-3 xl:grid-cols-[1fr_1fr]">

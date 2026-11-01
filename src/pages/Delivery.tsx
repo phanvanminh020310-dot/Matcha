@@ -10,7 +10,8 @@ import { useSql } from '../hooks/useDb'
 import { useApp } from '../store/app'
 import { PageHeader } from '../components/layout/AppShell'
 import { Badge, Button, Card, CardHeader, EmptyState, Field, Input, Modal, Select, Stat, Tabs, Textarea } from '../components/ui'
-import { MapView, type MapMarker } from '../components/MapView'
+import { FleetMap3D, type FleetShipment } from '../components/FleetMap3D'
+import { MapView } from '../components/MapView'
 import { cx, formatDateTime, formatNumber, formatVND, minutesSince, nowVN } from '../lib/format'
 
 type TabKey = 'board' | 'map' | 'create'
@@ -49,7 +50,7 @@ export function DeliveryPage() {
       </div>
 
       <Tabs value={tab} onChange={setTab} className="my-3"
-        tabs={[{ value: 'board' as TabKey, label: 'Bảng điều phối', count: active.length }, { value: 'map' as TabKey, label: 'Bản đồ trực tuyến' }, { value: 'create' as TabKey, label: 'Tạo vận đơn' }]} />
+        tabs={[{ value: 'board' as TabKey, label: 'Bảng điều phối', count: active.length }, { value: 'map' as TabKey, label: 'Bản đồ 3D trực tiếp' }, { value: 'create' as TabKey, label: 'Tạo vận đơn' }]} />
 
       {tab === 'board' && (
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
@@ -130,66 +131,90 @@ function DeliveryCard({ d, shippers, onOpen }: { d: DeliveryRow; shippers: Retur
   )
 }
 
+const STATUS_COLOR: Record<string, string> = {
+  waiting: '#f59e0b', assigned: '#0ea5e9', picked_up: '#38bdf8', delivering: '#22c55e', delivered: '#16a34a',
+}
+
 function LiveMap({ deliveries, branchId, onOpen }: { deliveries: DeliveryRow[]; branchId: number; onOpen: (id: number) => void }) {
   const [selected, setSelected] = useState<number | null>(deliveries[0]?.id ?? null)
-  const [progress, setProgress] = useState(0)
-  const [live, setLive] = useState(true)
-  const [rt, setRt] = useState<RouteResult | null>(null)
+  const [routes, setRoutes] = useState<Record<number, RouteResult>>({})
   const origin = BRANCH_GEO[branchId] ?? BRANCH_GEO[1]
-  const current = deliveries.find((d) => d.id === selected) ?? deliveries[0]
 
+  // lấy tuyến OSRM thật cho từng vận đơn (song song, có cache trong lib/geo)
   useEffect(() => {
-    if (!current?.lat || !current?.lng) { setRt(null); return }
     let cancelled = false
-    route({ lat: origin.lat, lng: origin.lng }, { lat: current.lat, lng: current.lng }).then((r) => { if (!cancelled) setRt(r) })
+    const targets = deliveries.filter((d) => d.lat && d.lng).slice(0, 12)
+    Promise.all(targets.map(async (d) => {
+      const r = await route({ lat: origin.lat, lng: origin.lng }, { lat: Number(d.lat), lng: Number(d.lng) })
+      return [d.id, r] as const
+    })).then((pairs) => {
+      if (cancelled) return
+      setRoutes(Object.fromEntries(pairs))
+    }).catch(() => { /* offline: vẫn hiện điểm, không có tuyến */ })
     return () => { cancelled = true }
-  }, [current?.id, current?.lat, current?.lng, origin.lat, origin.lng])
+  }, [deliveries.map((d) => `${d.id}:${d.lat}:${d.lng}`).join(','), origin.lat, origin.lng])
 
-  useEffect(() => {
-    if (!live) return
-    const id = setInterval(() => setProgress((p) => (p >= 1 ? 0 : Math.min(1, p + 0.02))), 900)
-    return () => clearInterval(id)
-  }, [live])
+  const shipments: FleetShipment[] = deliveries.map((d) => ({
+    id: d.id,
+    code: `VD${String(d.id).padStart(6, '0')}`,
+    status: d.status,
+    statusLabel: DELIVERY_STATUS[d.status].label,
+    color: STATUS_COLOR[d.status] ?? '#38bdf8',
+    customerName: d.customer_name,
+    address: d.address,
+    lat: Number(d.lat),
+    lng: Number(d.lng),
+    shipperName: d.shipper_name,
+    phone: d.shipper_phone,
+    amount: Number(d.total ?? 0),
+    route: routes[d.id] ?? null,
+  }))
 
-  const shipperPos = rt ? pointAlong(rt.geometry, progress) : null
-  const markers: MapMarker[] = useMemo(() => {
-    const list: MapMarker[] = [{ id: 'origin', lat: origin.lat, lng: origin.lng, kind: 'branch', label: 'Chi nhánh', popup: origin.label }]
-    deliveries.forEach((d) => {
-      if (!d.lat || !d.lng) return
-      list.push({ id: `d${d.id}`, lat: d.lat, lng: d.lng, kind: 'customer', label: d.code, popup: `${d.code} · ${d.customer_name ?? 'Khách'}<br/>${d.address}` })
-    })
-    if (shipperPos) list.push({ id: 'shipper', lat: shipperPos.lat, lng: shipperPos.lng, kind: 'shipper', label: 'Tài xế', popup: current?.shipper_name ?? 'Tài xế đang di chuyển' })
-    return list
-  }, [deliveries, origin, shipperPos, current])
+  const withRoute = shipments.filter((s) => s.route)
+  const totalKm = withRoute.reduce((sum, s) => sum + (s.route?.distanceKm ?? 0), 0)
+  const urgent = shipments.filter((s) => s.status === 'waiting').length
+  const online = new Set(shipments.map((s) => s.shipperName).filter(Boolean)).size
 
   return (
-    <div className="grid gap-3 xl:grid-cols-[1fr_330px]">
-      <Card className="overflow-hidden p-2">
-        <MapView markers={markers} route={rt?.geometry} height={520} center={origin} />
-        <div className="flex flex-wrap items-center gap-2 px-2 py-2 text-[11.5px] text-ink-500">
+    <div className="grid gap-3 xl:grid-cols-[1fr_320px]">
+      <div className="space-y-2">
+        <FleetMap3D
+          origin={{ lat: origin.lat, lng: origin.lng, label: origin.label }}
+          shipments={shipments}
+          selectedId={selected}
+          onSelect={setSelected}
+          height={560}
+        />
+        <div className="flex flex-wrap items-center gap-2 px-1 text-[11.5px] text-ink-500">
           <Badge tone="green" dot>tuyến OSRM thật</Badge>
-          {rt && <span>{rt.distanceKm} km · {rt.durationMin} phút · nguồn: {rt.source === 'osrm' ? 'OSRM (định tuyến thật)' : 'ước lượng offline'}</span>}
-          <label className="ml-auto flex items-center gap-1.5">
-            <input type="checkbox" checked={live} onChange={(e) => setLive(e.target.checked)} className="accent-matcha-600" />
-            Mô phỏng tài xế di chuyển
-          </label>
+          <span>{online} tài xế trực tuyến · {shipments.length} vận đơn · tổng {totalKm.toFixed(1)} km</span>
+          {urgent > 0 && <Badge tone="amber">{urgent} đơn chờ tài xế</Badge>}
+          <span className="ml-auto hidden sm:block">Kéo chuột để xoay · chuột phải để nghiêng · lăn chuột để zoom</span>
         </div>
-      </Card>
+      </div>
+
       <Card className="overflow-hidden">
-        <CardHeader title="Vận đơn đang chạy" subtitle={`${deliveries.length} vận đơn`} icon={<Bike size={16} />} />
-        <div className="max-h-[520px] overflow-y-auto">
-          {deliveries.map((d) => (
-            <button key={d.id} onClick={() => setSelected(d.id)} className={cx('w-full border-b border-ink-100 px-3 py-2 text-left last:border-0 dark:border-ink-800',
-              selected === d.id ? 'bg-matcha-50 dark:bg-matcha-900/20' : 'hover:bg-ink-50 dark:hover:bg-ink-800')}>
-              <div className="flex items-center justify-between">
-                <span className="font-mono text-[11px] text-ink-500">{d.code}</span>
-                <Badge tone={DELIVERY_STATUS[d.status].tone}>{DELIVERY_STATUS[d.status].label}</Badge>
-              </div>
-              <p className="mt-0.5 text-[12px] font-medium text-ink-900 dark:text-ink-50">{d.customer_name ?? 'Khách lẻ'}</p>
-              <p className="truncate text-[11px] text-ink-400">{d.address}</p>
-            </button>
-          ))}
-          {deliveries.length === 0 && <EmptyState title="Không có vận đơn đang chạy" />}
+        <CardHeader title="Đội xe đang chạy" subtitle={`${shipments.length} vận đơn · ${online} tài xế`} icon={<Bike size={16} />} />
+        <div className="max-h-[560px] overflow-y-auto">
+          {shipments.map((s) => {
+            const rt = routes[s.id]
+            return (
+              <button key={s.id} onClick={() => setSelected(s.id)} className={cx('w-full border-b border-ink-100 px-3 py-2 text-left last:border-0 dark:border-ink-800',
+                selected === s.id ? 'bg-matcha-50 dark:bg-matcha-900/20' : 'hover:bg-ink-50 dark:hover:bg-ink-800')}>
+                <div className="flex items-center justify-between">
+                  <span className="font-mono text-[11px] text-ink-500">{s.code}</span>
+                  <span className="rounded-full px-1.5 py-0.5 text-[10px] font-semibold" style={{ background: `${s.color}22`, color: s.color }}>{s.statusLabel}</span>
+                </div>
+                <p className="mt-0.5 text-[12px] font-medium text-ink-900 dark:text-ink-50">{s.customerName ?? 'Khách lẻ'}</p>
+                <p className="truncate text-[11px] text-ink-400">{s.address}</p>
+                <div className="mt-1 flex items-center gap-2 text-[10.5px] text-ink-400">
+                  <span>🛵 {s.shipperName ?? 'chưa gán'}</span>
+                  {rt && <span>· {rt.distanceKm} km · {rt.durationMin} phút</span>}
+                </div>
+              </button>
+            )
+          })}
+          {shipments.length === 0 && <EmptyState title="Không có vận đơn đang chạy" />}
         </div>
       </Card>
     </div>
@@ -316,10 +341,22 @@ function DeliveryDetail({ id, onClose }: { id: number; onClose: () => void }) {
       </>}>
       <div className="grid gap-3 lg:grid-cols-[1.1fr_1fr]">
         <div className="space-y-2">
-          <MapView markers={[
-            { id: 'o', lat: origin.lat, lng: origin.lng, kind: 'branch', label: 'Chi nhánh', popup: d.branch_name ?? '' },
-            ...(d.lat && d.lng ? [{ id: 'c', lat: d.lat, lng: d.lng, kind: 'customer' as const, label: 'Điểm giao', popup: d.address }] : []),
-          ]} route={rt?.geometry} height={230} />
+          {d.lat && d.lng ? (
+            <FleetMap3D
+              height={250}
+              origin={{ lat: origin.lat, lng: origin.lng }}
+              selectedId={d.id}
+              onSelect={() => {}}
+              shipments={[{
+                id: d.id, code: d.code ?? `VD${String(d.id).padStart(6, '0')}`, status: d.status, statusLabel: DELIVERY_STATUS[d.status].label,
+                color: STATUS_COLOR[d.status] ?? '#38bdf8', customerName: d.customer_name, address: d.address ?? '',
+                lat: Number(d.lat), lng: Number(d.lng), shipperName: d.shipper_name, phone: d.customer_phone ?? null,
+                amount: Number(d.total ?? 0), route: rt,
+              }]}
+            />
+          ) : (
+            <MapView markers={[{ id: 'o', lat: origin.lat, lng: origin.lng, kind: 'branch', label: 'Chi nhánh' }]} height={230} />
+          )}
           <div className="grid grid-cols-2 gap-2 text-[12px]">
             <Info label="Địa chỉ" value={d.address} wide />
             <Info label="Khoảng cách" value={`${d.distance_km} km`} />
