@@ -251,13 +251,16 @@ function CloudDatabase() {
     return () => { alive = false }
   }, [cfg.url, cfg.key, cfg.token])
   const readOnly = canWrite === false
+  // Quản trị CSDL đã mở khoá thì LUÔN thấy đầy đủ ô nhập — kể cả khi máy đang bị chặn ghi
+  // (mã đồng bộ hết hiệu lực/bị thu hồi) — để dán mã mới và khôi phục quyền ghi.
+  const adminMode = adminUnlocked()
   const [diffBusy, setDiffBusy] = useState(false)
   const counts = localCounts()
   const totalRows = counts.reduce((sum, c) => sum + c.rows, 0)
   let host = ''
   try { host = new URL(cfg.url).host } catch { host = '' }
 
-  if (readOnly) {
+  if (readOnly && !adminMode) {
     return (
       <div className="grid gap-3 lg:grid-cols-2">
         <Card>
@@ -366,6 +369,16 @@ function CloudDatabase() {
   }
 
   return (
+    <div className="space-y-3">
+      {readOnly && adminMode && (
+        <div className="rounded-2xl border border-amber-300 bg-amber-50 p-3 text-[11.5px] leading-relaxed text-amber-900 dark:border-amber-700/60 dark:bg-amber-900/20 dark:text-amber-100">
+          <p className="font-semibold">⚠️ Máy này đang bị CHẶN GHI (chế độ chỉ xem)</p>
+          <p className="mt-0.5">
+            Mã đồng bộ trên máy không còn hiệu lực hoặc chỉ có quyền đọc — thường là do mã cũ đã bị thu hồi.
+            Dán <b>mã đồng bộ mới</b> vào ô bên dưới, bấm <b>Kiểm tra mã</b> rồi <b>Kết nối &amp; tải toàn bộ</b>; xong thì tải lại trang là hết chế độ chỉ xem.
+          </p>
+        </div>
+      )}
     <div className="grid gap-3 lg:grid-cols-2">
       <Card>
         <CardHeader title="Kết nối Postgres (Supabase / Neon)" subtitle="Nơi lưu dữ liệu thật, nhiều máy dùng chung" icon={<Cloud size={16} />} />
@@ -378,7 +391,7 @@ function CloudDatabase() {
           </Field>
           <Field label="Mã đồng bộ (sync token)" hint="Bắt buộc khi cloud đã bật RLS: mã có dạng mk_ + 64 ký tự hex. DB chỉ lưu SHA-256 của mã.">
             <div className="flex gap-1.5">
-              <Input type={showToken ? 'text' : 'password'} value={cfg.token ?? ''} onChange={(e) => { update({ token: e.target.value }); setTokenState(null) }} placeholder="mk_6cd742698ef8…" className="flex-1" />
+              <Input type={showToken ? 'text' : 'password'} value={cfg.token ?? ''} onChange={(e) => { update({ token: e.target.value }); setTokenState(null) }} placeholder="mk_… (xem file MATCHA-cloud-token.txt)" className="flex-1" />
               <Button size="sm" variant="ghost" onClick={() => setShowToken((v) => !v)}>{showToken ? 'Ẩn' : 'Hiện'}</Button>
               <Button size="sm" variant="secondary" disabled={checkingToken || !cfg.url || !cfg.key} onClick={async () => {
                 setCheckingToken(true)
@@ -635,6 +648,7 @@ function CloudDatabase() {
           </div>
         </Card>
       </div>
+    </div>
     </div>
   )
 }

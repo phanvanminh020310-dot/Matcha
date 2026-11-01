@@ -11,6 +11,7 @@ import { can } from '../lib/rbac'
 import { PageHeader } from '../components/layout/AppShell'
 import { Badge, Button, Card, EmptyState, Field, Input, Modal, Select, Switch, Textarea } from '../components/ui'
 import { cx, formatNumber } from '../lib/format'
+import { hashPassword, looksHashed, passwordProblem } from '../lib/passwords'
 
 const LONG_TEXT = new Set(['layout', 'payload', 'before_value', 'after_value', 'note', 'description', 'config'])
 const BOOLISH = /^(is_|has_)/
@@ -255,17 +256,32 @@ function RowForm({ table, row, mode, onClose, onSaved }: {
   const { toast, user } = useApp()
   const cols = columnsOf(table)
   const meta = TABLES.find((t) => t.name === table)
-  const [form, setForm] = useState<Record<string, string>>(() => Object.fromEntries(cols.map((c) => [
-    c.name, row?.[c.name] == null ? (c.name === 'is_active' || c.name === 'is_default' ? '1' : '') : String(row[c.name]),
-  ])))
+  const [form, setForm] = useState<Record<string, string>>(() => Object.fromEntries(cols.map((c) => {
+    // Mật khẩu: khi sửa thì để trống = giữ nguyên (không hiện hash, không ghi đè)
+    if (table === 'users' && c.name === 'password') return [c.name, mode === 'create' ? '' : '']
+    return [c.name, row?.[c.name] == null ? (c.name === 'is_active' || c.name === 'is_default' ? '1' : '') : String(row[c.name])]
+  })))
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState(false)
 
   const set = (k: string, v: string) => setForm((f) => ({ ...f, [k]: v }))
 
-  const submit = () => {
+  const submit = async () => {
     setSaving(true)
     try {
+      // Tài khoản người dùng: KHÔNG bao giờ lưu mật khẩu chữ thường — luôn băm PBKDF2 trước khi ghi.
+      if (table === 'users') {
+        const pw = (form.password ?? '').trim()
+        if (mode === 'create' && !pw) throw new Error('Nhập mật khẩu đăng nhập cho tài khoản này.')
+        if (pw) {
+          if (looksHashed(pw)) throw new Error('Ô mật khẩu phải là mật khẩu thật, không dán chuỗi hash.')
+          const problem = passwordProblem(pw)
+          if (problem) throw new Error(problem)
+          form.password = await hashPassword(pw)
+        } else {
+          delete form.password // sửa tài khoản mà không đổi mật khẩu
+        }
+      }
       if (mode === 'create') insertRow(table, form, user?.id)
       else updateRow(table, pickKeys(row!, table), form, user?.id)
       toast({ title: mode === 'create' ? 'Đã thêm bản ghi' : 'Đã lưu thay đổi', description: meta?.label, tone: 'success' })
@@ -295,7 +311,10 @@ function RowForm({ table, row, mode, onClose, onSaved }: {
           const isLong = LONG_TEXT.has(c.name) || /JSON/i.test(c.type)
           return (
             <Field key={c.name} label={`${c.description || c.name}${c.nullable ? '' : ' *'}`}
-              hint={[c.pk ? 'khoá chính' : '', c.fk ? `→ ${c.fk.table}` : '', c.unique ? 'duy nhất' : ''].filter(Boolean).join(' · ') || undefined}
+              hint={[
+                c.pk ? 'khoá chính' : '', c.fk ? `→ ${c.fk.table}` : '', c.unique ? 'duy nhất' : '',
+                table === 'users' && c.name === 'password' ? (mode === 'edit' ? 'để trống = giữ nguyên mật khẩu' : 'tối thiểu 8 ký tự, có chữ và số') : '',
+              ].filter(Boolean).join(' · ') || undefined}
               className={isLong ? 'sm:col-span-2' : ''}>
               {c.fk ? (
                 <Select value={value} disabled={disabled} onChange={(e) => set(c.name, e.target.value)}>
@@ -313,7 +332,9 @@ function RowForm({ table, row, mode, onClose, onSaved }: {
                 <Textarea value={value} disabled={disabled} rows={3} onChange={(e) => set(c.name, e.target.value)} />
               ) : (
                 <Input value={value} disabled={disabled}
-                  type={/INT|REAL|DOUBLE/i.test(c.type) ? 'number' : c.name.endsWith('_at') ? 'datetime-local' : 'text'}
+                  type={table === 'users' && c.name === 'password'
+                    ? 'password'
+                    : /INT|REAL|DOUBLE/i.test(c.type) ? 'number' : c.name.endsWith('_at') ? 'datetime-local' : 'text'}
                   onChange={(e) => set(c.name, e.target.value)} placeholder={c.nullable ? 'có thể để trống' : ''} />
               )}
               {errors[c.name] && <p className="mt-0.5 text-[10.5px] text-rose-600">{errors[c.name]}</p>}

@@ -294,7 +294,9 @@ export function seedDatabase(db: Database): SeedResult {
   USERS.forEach((u, i) =>
     ins('users', {
       id: i + 1, name: u.name, email: u.email, phone: `09${10 + i}${100000 + i * 7919}`,
-      password: '123456', role: u.role, branch_id: u.branch, salary: u.salary, is_active: 1,
+      // '!' = khoá đăng nhập: dữ liệu mẫu chỉ để tham chiếu (đơn hàng, lương).
+      // Tài khoản thật do chủ chuỗi tạo trong Nhân sự (mật khẩu băm PBKDF2).
+      password: '!', role: u.role, branch_id: u.branch, salary: u.salary, is_active: 1,
       hired_at: `202${3 + (i % 3)}-0${(i % 9) + 1}-1${i % 9}`, avatar_emoji: u.emoji,
     }),
   )
