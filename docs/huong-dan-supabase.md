@@ -238,3 +238,32 @@ Lưu ý:
 - “Kết nối & tải toàn bộ” **không ghi đè** dữ liệu cloud; muốn đẩy từ máy này lên thì bấm **Đẩy dữ liệu lên**.
 - Đồng bộ chỉ ghi đè bảng nào **cloud có dữ liệu**; bảng cloud rỗng thì app giữ nguyên dữ liệu trên máy (chống mất dữ liệu).
 - Máy tài xế: mở `#/driver` trên điện thoại (HTTPS) → **Bật chia sẻ vị trí** để phát GPS thật lên bảng `driver_positions`.
+
+---
+
+## 11. Gặp lỗi “Cloud trả về 0 dòng ở bảng branches” / “Đọc dữ liệu nhưng GHI bị chặn”
+
+Nghĩa là: **URL + anon key đúng, nhưng “Mã đồng bộ” trên máy đó sai hoặc để trống** → Postgres (RLS) không cho đọc/ghi.
+Thường gặp nhất là **dán anon key vào ô mã đồng bộ** (ô anon key và ô mã đều hiện dấu chấm nên rất dễ nhầm).
+
+Cách xử lý trên máy bị lỗi:
+
+1. Mở **Cài đặt → Cơ sở dữ liệu**.
+2. Ở ô **“Mã đồng bộ (sync token)”**: bấm **Hiện** để xem mình đã dán gì.
+   - Mã đúng **bắt đầu bằng `mk_`**, dài **67 ký tự** (ví dụ `mk_6cd742698ef858d2511780957caba5c9d2f7f038`).
+   - Nếu thấy chuỗi `eyJ…` → đó là **anon key**, dán nhầm ô.
+3. Bấm **“Kiểm tra mã”** → phải hiện ✅ *Mã đồng bộ hợp lệ*.
+4. Bấm **“Kết nối & tải toàn bộ dữ liệu”**.
+5. Bấm **“Đối chiếu máy này ↔ cloud”** → phải hiện *Khớp hoàn toàn*.
+
+Bảng chẩn đoán nhanh:
+
+| Hiện tượng | Nguyên nhân | Cách sửa |
+| --- | --- | --- |
+| *Đối chiếu*: mọi bảng **cloud = 0** | Sai/thiếu mã đồng bộ | Dán lại mã `mk_…` |
+| *Kiểm tra mã* ❌ *Mã đồng bộ KHÔNG đúng* | Mã không khớp hash trong bảng `sync_tokens` | Dùng **“Quên / mất mã đồng bộ? Sinh mã mới”** → chạy SQL hiện ra trong Supabase → dán mã mới |
+| *Kiểm tra mã* ❌ *Ô này đang chứa ANON KEY* | Dán nhầm ô | Copy lại anon key sang ô *Anon / service key* |
+| HTTP 401 ngay khi Kiểm tra kết nối | Anon key sai/hết hạn | Supabase → Settings → API Keys → copy lại `anon public` |
+| Một vài bảng lệch số dòng | Máy chưa tải hết / máy khác vừa thêm dữ liệu | Bấm *Kết nối & tải toàn bộ* hoặc *Đẩy dữ liệu lên* |
+
+> Nút **Sinh mã mới** tạo mã `mk_…`, hiện sẵn câu SQL `insert into public.sync_tokens (label, token_hash …)` — dán vào Supabase SQL Editor, Run, rồi bấm *Dùng mã này cho máy này*. Mỗi máy có thể dùng một mã riêng, tất cả đều hợp lệ.

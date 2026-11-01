@@ -61,6 +61,45 @@ export function saveCloud(cfg: CloudConfig) {
 /** URL cloud đã chuẩn hoá (bỏ /rest/v1, bỏ dấu / cuối). */
 export const normCloudUrl = (url: string) => normUrl(url ?? '')
 
+/** Mã đồng bộ đúng dạng `mk_` + chuỗi hex (khoảng 67 ký tự). */
+export function tokenLooksValid(token: string): boolean {
+  const t = (token ?? '').trim()
+  return /^mk_[0-9a-f]{16,}$/i.test(t)
+}
+
+/**
+ * Cảnh báo khi ô "Mã đồng bộ" bị dán nhầm thứ khác — đây là lỗi phổ biến nhất
+ * (dán anon key vào ô mã) làm máy mới không tải được dữ liệu.
+ */
+export function tokenWarning(token: string): string | null {
+  const t = (token ?? '').trim()
+  if (!t) return 'Chưa nhập mã đồng bộ — cloud đã bật RLS nên KHÔNG đọc được dữ liệu nếu thiếu mã.'
+  if (/^eyJ/.test(t) || /^sb_/.test(t)) return 'Ô này đang chứa ANON KEY, không phải mã đồng bộ. Mã đồng bộ bắt đầu bằng “mk_”.'
+  if (t.length > 90) return 'Chuỗi này quá dài so với một mã đồng bộ (thường 67 ký tự, bắt đầu bằng mk_). Có thể bạn dán nhầm key.'
+  if (!tokenLooksValid(t)) return 'Mã đồng bộ phải có dạng mk_ + chuỗi hex (ví dụ mk_6cd742698ef8…). Kiểm tra lại xem có dán thiếu/ thừa ký tự.'
+  return null
+}
+
+/** Hỏi Postgres xem mã đồng bộ hiện tại có hợp lệ không (RPC sync_ok). */
+export async function checkToken(cfg: CloudConfig): Promise<{ ok: boolean; message: string }> {
+  if (!cfg.url || !cfg.key) return { ok: false, message: 'Cần Project URL + anon key trước' }
+  const warn = tokenWarning(cfg.token)
+  if (warn) return { ok: false, message: warn }
+  try {
+    const res = await fetch(`${normUrl(cfg.url)}/rest/v1/rpc/sync_ok`, {
+      method: 'POST', headers: headers(cfg), body: '{}', signal: AbortSignal.timeout(15000),
+    })
+    if (res.status === 404) return { ok: false, message: 'Cloud chưa chạy rls.sql nên không kiểm tra được mã (nhưng dữ liệu vẫn tải được).' }
+    if (!res.ok) return { ok: false, message: `Không kiểm tra được mã (HTTP ${res.status})` }
+    const val = await res.json().catch(() => null)
+    return val === true
+      ? { ok: true, message: 'Mã đồng bộ hợp lệ — máy này được phép đọc & ghi.' }
+      : { ok: false, message: 'Mã đồng bộ KHÔNG đúng: Postgres trả về false. Dán lại đúng mã “mk_…” (xem file MATCHA-cloud-token.txt) rồi thử lại.' }
+  } catch (e) {
+    return { ok: false, message: `Không kết nối được: ${(e as Error).message}` }
+  }
+}
+
 /** Cảnh báo cấu hình: service key có toàn quyền, chỉ nên dùng khi thử nghiệm. */
 export function keyWarning(key: string): string | null {
   const k = key.trim()
@@ -352,7 +391,12 @@ export async function pullAll(cfg: CloudConfig, onProgress?: (p: SyncProgress) =
   // 2) Chốt an toàn: RLS chặn đọc trả về 0 dòng (không phải lỗi HTTP) ⇒ tuyệt đối không xoá dữ liệu máy
   const branchRows = plan.find((p) => p.table === 'branches')?.rows.length ?? 0
   if (branchRows === 0) {
-    throw new Error('Cloud trả về 0 dòng ở bảng "branches" — thường do thiếu "Mã đồng bộ" (RLS chặn đọc) hoặc cloud chưa có dữ liệu. Đã giữ nguyên dữ liệu trên máy.')
+    const tWarn = tokenWarning(cfg.token)
+    throw new Error(
+      tWarn
+        ? `Không tải được: ${tWarn} → cloud chặn đọc (0 dòng ở "branches"). Dữ liệu trên máy vẫn giữ nguyên.`
+        : 'Cloud trả về 0 dòng ở bảng "branches": mã đồng bộ sai/không khớp với Postgres, hoặc cloud chưa có dữ liệu. Bấm "Kiểm tra mã đồng bộ" ở Cài đặt → Cơ sở dữ liệu. Dữ liệu trên máy vẫn giữ nguyên.',
+    )
   }
 
   // 3) Xoá + ghi đè trong MỘT transaction (lỗi là rollback toàn bộ)

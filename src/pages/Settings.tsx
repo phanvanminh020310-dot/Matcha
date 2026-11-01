@@ -4,11 +4,11 @@ import { getAuditLogs, getBranches, getTables, updateTablePosition } from '../li
 import { useSql } from '../hooks/useDb'
 import { useApp } from '../store/app'
 import { PageHeader, ResetDataButton } from '../components/layout/AppShell'
-import { Badge, Button, Card, CardHeader, Field, Input, Modal, Select, Switch, Tabs } from '../components/ui'
+import { Badge, Button, Card, CardHeader, Field, Input, Modal, Select, Switch, Tabs, Textarea } from '../components/ui'
 import { dbSizeBytes, run } from '../lib/db'
 import { REALTIME_SQL } from '../lib/realtime'
 import { RLS_SQL } from '../lib/rls'
-import { buildSeedSQL, cloudCounts, keyWarning, loadCloud, localCounts, pullAll, pushAll, saveCloud, testCloud, toPgDDL, type CloudConfig, type SyncProgress } from '../lib/cloud'
+import { buildSeedSQL, checkToken, cloudCounts, keyWarning, loadCloud, localCounts, pullAll, pushAll, saveCloud, testCloud, toPgDDL, tokenWarning, type CloudConfig, type SyncProgress } from '../lib/cloud'
 import { downloadFile } from '../lib/format'
 import { PERM_GROUPS, getRoles, permsOf } from '../lib/permissions'
 import { METHOD_LABEL, cx, formatDateTime, formatVND } from '../lib/format'
@@ -204,6 +204,12 @@ function CloudDatabase() {
   const [progress, setProgress] = useState<SyncProgress | null>(null)
   const [busy, setBusy] = useState<'push' | 'pull' | 'connect' | null>(null)
   const [diff, setDiff] = useState<{ table: string; local: number; cloud: number }[] | null>(null)
+  const [showToken, setShowToken] = useState(false)
+  const [lostOpen, setLostOpen] = useState(false)
+  const [newToken, setNewToken] = useState<{ token: string; sql: string } | null>(null)
+  const [tokenState, setTokenState] = useState<{ ok: boolean; message: string } | null>(null)
+  const [checkingToken, setCheckingToken] = useState(false)
+  const tokenMsg = tokenWarning(cfg.token)
   const [diffBusy, setDiffBusy] = useState(false)
   const counts = localCounts()
   const totalRows = counts.reduce((sum, c) => sum + c.rows, 0)
@@ -285,9 +291,36 @@ function CloudDatabase() {
           <Field label="Anon / service key" hint="Supabase → Settings → API → anon public key. Key chỉ lưu trong máy bạn.">
             <Input type="password" value={cfg.key} onChange={(e) => update({ key: e.target.value })} placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6..." />
           </Field>
-          <Field label="Mã đồng bộ (sync token)" hint="Bắt buộc khi cloud đã bật RLS (docs/sql/rls.sql). DB chỉ lưu SHA-256 của mã — mất mã thì cấp lại mã mới bằng SQL, xem hướng dẫn.">
-            <Input type="password" value={cfg.token ?? ''} onChange={(e) => update({ token: e.target.value })} placeholder="mk_…" />
+          <Field label="Mã đồng bộ (sync token)" hint="Bắt buộc khi cloud đã bật RLS: mã có dạng mk_ + 64 ký tự hex. DB chỉ lưu SHA-256 của mã.">
+            <div className="flex gap-1.5">
+              <Input type={showToken ? 'text' : 'password'} value={cfg.token ?? ''} onChange={(e) => { update({ token: e.target.value }); setTokenState(null) }} placeholder="mk_6cd742698ef8…" className="flex-1" />
+              <Button size="sm" variant="ghost" onClick={() => setShowToken((v) => !v)}>{showToken ? 'Ẩn' : 'Hiện'}</Button>
+              <Button size="sm" variant="secondary" disabled={checkingToken || !cfg.url || !cfg.key} onClick={async () => {
+                setCheckingToken(true)
+                setTokenState(await checkToken(cfg))
+                setCheckingToken(false)
+              }}>{checkingToken ? 'Đang kiểm tra…' : 'Kiểm tra mã'}</Button>
+            </div>
           </Field>
+          {tokenMsg && (
+            <p className="rounded-xl bg-rose-50 p-2 text-[11px] leading-relaxed text-rose-700 dark:bg-rose-900/20 dark:text-rose-200">
+              ⚠️ {tokenMsg}
+            </p>
+          )}
+          <button className="text-left text-[11px] text-matcha-700 underline dark:text-matcha-300" onClick={async () => {
+            const bytes = crypto.getRandomValues(new Uint8Array(32))
+            const token = 'mk_' + [...bytes].map((x) => x.toString(16).padStart(2, '0')).join('')
+            const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token))
+            const hash = [...new Uint8Array(digest)].map((x) => x.toString(16).padStart(2, '0')).join('')
+            const sql = `insert into public.sync_tokens (label, token_hash, note)\nvalues ('Máy mới ${new Date().toLocaleDateString('vi-VN')}', '${hash}', 'cấp lại mã');`
+            setNewToken({ token, sql })
+            setLostOpen(true)
+          }}>Quên / mất mã đồng bộ? Sinh mã mới tại đây →</button>
+          {tokenState && (
+            <p className={cx('rounded-xl p-2 text-[11px] leading-relaxed', tokenState.ok ? 'bg-matcha-50 text-matcha-800 dark:bg-matcha-900/20 dark:text-matcha-200' : 'bg-rose-50 text-rose-700 dark:bg-rose-900/20 dark:text-rose-200')}>
+              {tokenState.ok ? '✅' : '❌'} {tokenState.message}
+            </p>
+          )}
           {keyWarning(cfg.key) && (
             <p className="rounded-xl bg-amber-50 p-2 text-[11px] leading-relaxed text-amber-800 dark:bg-amber-900/20 dark:text-amber-200">⚠️ {keyWarning(cfg.key)}</p>
           )}
@@ -306,10 +339,10 @@ function CloudDatabase() {
               setResult(r)
               setTesting(false)
             }}>{testing ? 'Đang kiểm tra…' : 'Kiểm tra kết nối'}</Button>
-            <Button variant="primary" icon={<Upload size={15} />} disabled={!!busy || !cfg.url} onClick={() => runSync('push')}>
+            <Button variant="primary" icon={<Upload size={15} />} disabled={!!busy || !cfg.url || !!tokenMsg} onClick={() => runSync('push')}>
               {busy === 'push' ? 'Đang đẩy…' : 'Đẩy dữ liệu lên'}
             </Button>
-            <Button icon={<Download size={15} />} disabled={!!busy || !cfg.url} onClick={() => runSync('pull')}>
+            <Button icon={<Download size={15} />} disabled={!!busy || !cfg.url || !!tokenMsg} onClick={() => runSync('pull')}>
               {busy === 'pull' ? 'Đang tải…' : 'Tải từ cloud'}
             </Button>
             <Button variant="ghost" icon={<RefreshCw size={15} />} disabled={!!busy || !cfg.url} onClick={async () => {
@@ -345,18 +378,51 @@ function CloudDatabase() {
         </div>
       </Card>
 
+      {lostOpen && newToken && (
+        <Modal open onClose={() => setLostOpen(false)} title="Cấp lại mã đồng bộ" footer={
+          <>
+            <Button variant="ghost" onClick={() => setLostOpen(false)}>Đóng</Button>
+            <Button variant="primary" onClick={() => { update({ token: newToken.token }); setLostOpen(false); setTokenState(null) }}>Dùng mã này cho máy này</Button>
+          </>
+        }>
+          <div className="space-y-3 text-[12.5px]">
+            <p className="rounded-xl bg-amber-50 p-2.5 text-[11.5px] leading-relaxed text-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
+              Postgres chỉ lưu <b>hash</b> của mã, không lưu mã gốc — nên không xem lại được mã cũ, chỉ cấp mã mới.
+            </p>
+            <div>
+              <p className="mb-1 font-semibold">1. Mã mới (lưu vào file kín, ví dụ MATCHA-cloud-token.txt):</p>
+              <div className="flex gap-2">
+                <Input readOnly value={newToken.token} className="font-mono text-[11.5px]" />
+                <Button size="sm" variant="secondary" onClick={() => { void navigator.clipboard.writeText(newToken.token); toast({ title: 'Đã copy mã', tone: 'success' }) }}>Copy</Button>
+              </div>
+            </div>
+            <div>
+              <p className="mb-1 font-semibold">2. Chạy SQL này trong Supabase → SQL Editor → Run:</p>
+              <Textarea readOnly rows={4} value={newToken.sql} className="font-mono text-[11px]" />
+              <Button size="sm" className="mt-1" onClick={() => { void navigator.clipboard.writeText(newToken.sql); toast({ title: 'Đã copy SQL', tone: 'success' }) }}>Copy SQL</Button>
+            </div>
+            <p className="text-[11px] text-ink-500 dark:text-ink-400">3. Quay lại đây bấm <b>“Dùng mã này cho máy này”</b> → <b>Kiểm tra mã</b> → <b>Kết nối &amp; tải toàn bộ dữ liệu</b>. Các máy khác dùng chung mã này (mỗi máy có thể có mã riêng, đều hợp lệ).</p>
+          </div>
+        </Modal>
+      )}
+
       <div className="space-y-3">
         <Card>
           <CardHeader title="Máy mới? Bấm 1 nút là xong" subtitle="Dán URL + anon key + mã đồng bộ vào ô bên trái, rồi bấm nút này" icon={<Cloud size={16} />} />
           <div className="space-y-2 p-4">
             <div className="flex flex-wrap gap-2">
-              <Button variant="primary" icon={<Download size={15} />} disabled={!!busy || !cfg.url || !cfg.key} onClick={connectThisMachine}>
+              <Button variant="primary" icon={<Download size={15} />} disabled={!!busy || !cfg.url || !cfg.key || !!tokenMsg} onClick={connectThisMachine}>
                 {busy === 'connect' ? 'Đang kết nối & tải…' : 'Kết nối & tải toàn bộ dữ liệu'}
               </Button>
               <Button variant="secondary" icon={<RefreshCw size={15} />} disabled={diffBusy || !cfg.url || !cfg.key} onClick={compareNow}>
                 {diffBusy ? 'Đang đối chiếu…' : 'Đối chiếu máy này ↔ cloud'}
               </Button>
             </div>
+            {tokenMsg && (
+              <p className="rounded-xl bg-rose-50 p-2.5 text-[11.5px] leading-relaxed text-rose-700 dark:bg-rose-900/20 dark:text-rose-200">
+                ⚠️ <b>Chưa kết nối được:</b> {tokenMsg} Dán mã đúng vào ô <b>“Mã đồng bộ (sync token)”</b> ở cột bên trái — mã này <b>khác</b> anon key (mã dài ~67 ký tự, bắt đầu bằng <code>mk_</code>, xem file <code>MATCHA-cloud-token.txt</code>).
+              </p>
+            )}
             <p className="text-[11.5px] leading-relaxed text-ink-500 dark:text-ink-400">
               Nút đầu tiên sẽ: kiểm tra kết nối → tải <b>toàn bộ</b> dữ liệu trên Postgres về máy này → bật <b>tự đồng bộ khi mở app</b>.
               Dùng cho máy thứ 2 trở đi (máy thu ngân, laptop quản lý…). Dữ liệu cloud <b>không bị ghi đè</b> bởi thao tác này.
