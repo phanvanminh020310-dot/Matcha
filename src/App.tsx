@@ -146,8 +146,12 @@ export default function App() {
         // Máy mới (chưa từng tải) mà đã có cấu hình cloud → tự tải ngay lần đầu,
         // không cần người dùng nhớ bật "tự đồng bộ".
         const firstRun = !cloud.lastSync && !!cloud.token
-        const justSynced = !!cloud.lastSync && Date.now() - new Date(cloud.lastSync).getTime() < 120000
-        if (cloud.url && cloud.key && (cloud.autoSync || firstRun) && !justSynced) {
+        // TIẾT KIỆM BĂNG THÔNG (Supabase tính egress): 1 lần tải toàn bộ ≈ 5 MB nén.
+        // Vì vậy KHÔNG tải lại mỗi lần mở app — chỉ tải khi dữ liệu đã cũ hơn 30 phút.
+        // Dữ liệu thay đổi giữa các máy đã có realtime lo; cần gấp thì bấm "Tải dữ liệu mới nhất".
+        const AUTO_PULL_EVERY_MS = 30 * 60 * 1000
+        const fresh = !!cloud.lastSync && Date.now() - new Date(cloud.lastSync).getTime() < AUTO_PULL_EVERY_MS
+        if (cloud.url && cloud.key && (cloud.autoSync || firstRun) && !fresh) {
           console.info('[matcha][cloud] auto-pull bắt đầu', cloud.url)
           try {
             if (mounted) setProgress((prev) => [...prev, { step: 'Đang tải dữ liệu từ máy chủ', detail: 'Postgres · nhiều máy dùng chung' }])
