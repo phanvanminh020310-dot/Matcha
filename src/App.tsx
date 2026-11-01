@@ -130,6 +130,8 @@ export default function App() {
           try {
             const res = await pullAll(cloud, (p) => { if (!p.done) console.info(`[matcha][cloud] ${p.table} ${p.rows}`) })
             console.info('[matcha][cloud] auto-pull xong', res.rows, 'dòng')
+            ensureRoles() // cloud có thể trống bảng roles → tạo lại vai trò mặc định
+            refreshRbac()
             clearCloudError()
             if (res.rows > 0) window.dispatchEvent(new CustomEvent('matcha:db-refresh'))
           } catch (e) {

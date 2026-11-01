@@ -327,8 +327,15 @@ export async function pullAll(cfg: CloudConfig, onProgress?: (p: SyncProgress) =
   }
 
   // 3) Xoá + ghi đè trong MỘT transaction (lỗi là rollback toàn bộ)
+  //    Bảng cấu hình (roles/app_meta) mà cloud rỗng thì GIỮ dữ liệu trên máy —
+  //    tránh trường hợp máy mất sạch vai trò/phân quyền sau khi đồng bộ.
+  const planMap = new Map(plan.map((p) => [p.table, p.rows]))
+  const keepLocal = new Set(['roles', 'app_meta'].filter((t) => (planMap.get(t)?.length ?? 0) === 0))
   const statements: { sql: string; params: SqlValue[] }[] = []
-  for (const name of [...SYNC_ORDER].reverse()) statements.push({ sql: `DELETE FROM ${name}`, params: [] })
+  for (const name of [...SYNC_ORDER].reverse()) {
+    if (keepLocal.has(name)) continue
+    statements.push({ sql: `DELETE FROM ${name}`, params: [] })
+  }
   for (const { table, rows } of plan) {
     if (!rows.length) continue
     const cols = Object.keys(rows[0])

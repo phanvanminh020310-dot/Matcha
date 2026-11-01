@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { AlertTriangle, CloudLightning, RefreshCw, X } from 'lucide-react'
 import { clearCloudError, loadCloud, pullAll, readCloudError } from '../lib/cloud'
+import { ensureRoles } from '../lib/permissions'
+import { refreshRbac } from '../lib/rbac'
 import { connectRealtime, type RealtimeEvent, type RealtimeHandle } from '../lib/realtime'
 import { Badge, Button } from './ui'
 
@@ -93,6 +95,8 @@ export function CloudSyncWatcher() {
                 setSyncing(true)
                 try {
                   await pullAll(loadCloud())
+                  ensureRoles()
+                  refreshRbac()
                   location.reload()
                 } catch {
                   setSyncing(false)
