@@ -6,6 +6,7 @@ import initSqlJs, { type Database, type SqlValue } from 'sql.js'
 export type { SqlValue }
 import wasmUrl from 'sql.js/dist/sql-wasm.wasm?url'
 import { seedDatabase } from './seed'
+import { seedExtras } from './seed-extra'
 import { DDL, SCHEMA_VERSION } from './schema'
 
 const IDB_NAME = 'matcha-pos'
@@ -127,12 +128,13 @@ export async function initDatabase(onProgress?: (p: InitProgress) => void): Prom
     db = new SQLModule.Database(saved)
     db.run('PRAGMA foreign_keys = ON')
     migrate(db)
+    fillNewTables(db)
     await persist(true)
     onProgress?.({ step: 'Đã nâng cấp CSDL', detail: 'giữ nguyên toàn bộ dữ liệu' })
     return { seeded: false, ms: Math.round(performance.now() - t0) }
   }
 
-  onProgress?.({ step: 'Tạo schema quan hệ', detail: '28 bảng · PK/FK · index' })
+  onProgress?.({ step: 'Tạo schema quan hệ', detail: '75 bảng · PK/FK · CHECK · index' })
   db = new SQLModule.Database()
   await new Promise((r) => setTimeout(r, 30))
   onProgress?.({ step: 'Sinh dữ liệu demo 90 ngày', detail: '3 chi nhánh · 220 khách · ~4.000 đơn' })
@@ -154,6 +156,25 @@ export function migrate(target: Database = getDb()) {
     .replace(/CREATE TABLE (\w+)/g, 'CREATE TABLE IF NOT EXISTS $1')
     .replace(/CREATE INDEX (\w+)/g, 'CREATE INDEX IF NOT EXISTS $1')
   target.run(patch)
+}
+
+/**
+ * Máy đang có dữ liệu cũ vừa được nâng cấp schema: các bảng MỚI còn rỗng thì
+ * sinh dữ liệu cho chúng từ dữ liệu lõi hiện có (không đụng bảng cũ).
+ */
+export function fillNewTables(target: Database = getDb()) {
+  const count = (t: string) => {
+    try { return Number(target.exec(`SELECT COUNT(*) FROM ${t}`)[0]?.values[0][0] ?? 0) } catch { return 0 }
+  }
+  if (count('driver_positions') > 0) return
+  const orders = count('orders')
+  if (orders === 0) return
+  try {
+    const added = seedExtras(target)
+    console.info('[matcha-pos] đã sinh dữ liệu cho bảng mới', added)
+  } catch (e) {
+    console.error('[matcha-pos] sinh dữ liệu bảng mới lỗi', e)
+  }
 }
 
 export function getDb(): Database {

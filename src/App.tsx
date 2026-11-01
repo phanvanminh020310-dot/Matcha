@@ -5,7 +5,7 @@ import { Toaster } from './components/ui'
 import { CloudSyncWatcher } from './components/CloudSyncWatcher'
 import { useApp } from './store/app'
 import { initDatabase, type InitProgress } from './lib/db'
-import { clearCloudError, loadCloud, pullAll, setCloudError } from './lib/cloud'
+import { clearCloudError, loadCloud, pullAll, saveCloud, setCloudError } from './lib/cloud'
 import { ensureRoles } from './lib/permissions'
 import { refreshRbac } from './lib/rbac'
 import { LoginPage } from './pages/Login'
@@ -29,6 +29,7 @@ import { AdminDataPage } from './pages/AdminData'
 import { RolesPage } from './pages/Roles'
 import { ErpSimulatorPage } from './pages/ErpSimulator'
 import { DeliveryPage, TrackingPage } from './pages/Delivery'
+import { DriverPage } from './pages/Driver'
 import { PrintStudioPage } from './pages/PrintStudio'
 
 /* ------------------------------ Boot screen ----------------------------- */
@@ -94,6 +95,7 @@ function AppRoutes() {
       <Route path="/inventory" element={<Protected><InventoryPage /></Protected>} />
       <Route path="/purchasing" element={<Protected><PurchasingPage /></Protected>} />
       <Route path="/delivery" element={<Protected><DeliveryPage /></Protected>} />
+      <Route path="/driver" element={<Protected><DriverPage /></Protected>} />
       <Route path="/print" element={<Protected><PrintStudioPage /></Protected>} />
       <Route path="/customers" element={<Protected><CustomersPage /></Protected>} />
       <Route path="/promotions" element={<Protected><PromotionsPage /></Protected>} />
@@ -125,11 +127,15 @@ export default function App() {
         setReady(true)
         // Nếu user đã cấu hình Postgres cloud và bật tự đồng bộ → kéo dữ liệu mới nhất về máy
         const cloud = loadCloud()
-        if (cloud.autoSync && cloud.url && cloud.key) {
+        // Máy mới (chưa từng tải) mà đã có cấu hình cloud → tự tải ngay lần đầu,
+        // không cần người dùng nhớ bật "tự đồng bộ".
+        const firstRun = !cloud.lastSync && !!cloud.token
+        if (cloud.url && cloud.key && (cloud.autoSync || firstRun)) {
           console.info('[matcha][cloud] auto-pull bắt đầu', cloud.url)
           try {
             const res = await pullAll(cloud, (p) => { if (!p.done) console.info(`[matcha][cloud] ${p.table} ${p.rows}`) })
             console.info('[matcha][cloud] auto-pull xong', res.rows, 'dòng')
+            if (firstRun) saveCloud({ ...loadCloud(), autoSync: true })
             ensureRoles() // cloud có thể trống bảng roles → tạo lại vai trò mặc định
             refreshRbac()
             clearCloudError()

@@ -33,6 +33,8 @@ export interface FleetShipment {
   phone?: string | null
   amount?: number
   route?: RouteResult | null
+  /** Vị trí GPS thật do app tài xế gửi lên (nếu có, thay cho mô phỏng theo tuyến) */
+  live?: { lat: number; lng: number; heading?: number | null; ageMin?: number } | null
 }
 
 const svg = {
@@ -217,9 +219,12 @@ export function FleetMap3D({
         const step = (dt / dur) * speedMul * 18 // tua nhanh 18× cho dễ quan sát
         if (playing) progress.current[key] = Math.min(1, progress.current[key] + step)
         const p = progress.current[key]
-        const pos = pointAlong(s.route.geometry, p)
+        const hasLive = !!s.live
+        const pos = hasLive ? { lat: s.live!.lat, lng: s.live!.lng } : pointAlong(s.route.geometry, p)
         const ahead = pointAlong(s.route.geometry, Math.min(1, p + 0.004))
-        const bearing = (Math.atan2(ahead.lng - pos.lng, ahead.lat - pos.lat) * 180) / Math.PI
+        const bearing = hasLive
+          ? (s.live!.heading ?? (Math.atan2(ahead.lng - pos.lng, ahead.lat - pos.lat) * 180) / Math.PI)
+          : (Math.atan2(ahead.lng - pos.lng, ahead.lat - pos.lat) * 180) / Math.PI
 
         const mk = markers.current.get(`v${key}`)
         if (mk) {

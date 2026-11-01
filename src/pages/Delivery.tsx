@@ -13,6 +13,7 @@ import { Badge, Button, Card, CardHeader, EmptyState, Field, Input, Modal, Selec
 import { FleetMap3D, type FleetShipment } from '../components/FleetMap3D'
 import { MapView } from '../components/MapView'
 import { cx, formatDateTime, formatNumber, formatVND, minutesSince, nowVN } from '../lib/format'
+import { GPS_FRESH_MINUTES, fetchRemotePositions, gpsAgeMinutes, latestLocalPositions, type GpsPoint } from '../lib/gps'
 
 type TabKey = 'board' | 'map' | 'create'
 
@@ -140,6 +141,27 @@ function LiveMap({ deliveries, branchId, onOpen }: { deliveries: DeliveryRow[]; 
   const [routes, setRoutes] = useState<Record<number, RouteResult>>({})
   const origin = BRANCH_GEO[branchId] ?? BRANCH_GEO[1]
 
+  // ---- GPS THẬT: đọc vị trí mới nhất (máy này + Postgres) mỗi 5 giây ----
+  const [gps, setGps] = useState<Record<number, GpsPoint>>({})
+  useEffect(() => {
+    let cancelled = false
+    const tick = async () => {
+      const local = latestLocalPositions(120)
+      const remote = await fetchRemotePositions(60)
+      if (cancelled) return
+      const merged: Record<number, GpsPoint> = { ...local }
+      Object.entries(remote ?? {}).forEach(([k, v]) => {
+        const id = Number(k)
+        const cur = merged[id]
+        if (!cur || v.recordedAt > cur.recordedAt) merged[id] = v
+      })
+      setGps(merged)
+    }
+    void tick()
+    const timer = setInterval(tick, 5000)
+    return () => { cancelled = true; clearInterval(timer) }
+  }, [])
+
   // lấy tuyến OSRM thật cho từng vận đơn (song song, có cache trong lib/geo)
   useEffect(() => {
     let cancelled = false
@@ -168,6 +190,14 @@ function LiveMap({ deliveries, branchId, onOpen }: { deliveries: DeliveryRow[]; 
     phone: d.shipper_phone,
     amount: Number(d.total ?? 0),
     route: routes[d.id] ?? null,
+    live: (() => {
+      // ưu tiên điểm GPS gắn trực tiếp vào vận đơn, sau đó mới tới tài xế được gán
+      const byDelivery = Object.values(gps).find((x) => x.deliveryId === d.id)
+      const p = byDelivery ?? (d.shipper_id ? gps[d.shipper_id] : null)
+      if (!p) return null
+      const age = gpsAgeMinutes(p)
+      return age <= GPS_FRESH_MINUTES ? { lat: p.lat, lng: p.lng, heading: p.heading, ageMin: age } : null
+    })(),
   }))
 
   const withRoute = shipments.filter((s) => s.route)
@@ -187,6 +217,9 @@ function LiveMap({ deliveries, branchId, onOpen }: { deliveries: DeliveryRow[]; 
         />
         <div className="flex flex-wrap items-center gap-2 px-1 text-[11.5px] text-ink-500">
           <Badge tone="green" dot>tuyến OSRM thật</Badge>
+          {shipments.filter((s) => s.live).length > 0
+            ? <Badge tone="purple">{shipments.filter((s) => s.live).length} xe đang phát GPS thật</Badge>
+            : <Badge tone="gray">chưa có GPS thật — đang mô phỏng theo tuyến</Badge>}
           <span>{online} tài xế trực tuyến · {shipments.length} vận đơn · tổng {totalKm.toFixed(1)} km</span>
           {urgent > 0 && <Badge tone="amber">{urgent} đơn chờ tài xế</Badge>}
           <span className="ml-auto hidden sm:block">Kéo chuột để xoay · chuột phải để nghiêng · lăn chuột để zoom</span>

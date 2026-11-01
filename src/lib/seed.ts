@@ -7,6 +7,7 @@ import type { Database } from 'sql.js'
 import { DDL } from './schema'
 import { DEMO_PLACES, BRANCH_GEO, deliveryFeeFor, haversine } from './geo'
 import { DEFAULT_TEMPLATES } from './print'
+import { seedExtras } from './seed-extra'
 
 /* ------------------------------- tiện ích -------------------------------- */
 export function mulberry32(a: number) {
@@ -1055,8 +1056,21 @@ export function seedDatabase(db: Database): SeedResult {
 
   db.run('COMMIT')
 
+  /* ---- 40 bảng mở rộng (schema v6): kho nâng cao, mua hàng, CRM, GPS, quỹ, kế toán ---- */
+  try {
+    seedExtras(db)
+  } catch (e) {
+    console.error('[matcha] seedExtras lỗi:', e)
+  }
+
   /* ---- thống kê ---- */
-  const tableList = ['branches', 'users', 'categories', 'products', 'product_sizes', 'toppings', 'product_toppings', 'orders', 'order_items', 'order_item_toppings', 'payments', 'order_events', 'dining_tables', 'shifts', 'shift_cash_txns', 'ingredients', 'recipes', 'inventory_stock', 'inventory_txns', 'suppliers', 'purchase_orders', 'purchase_order_items', 'customers', 'vouchers', 'promotions', 'finance_entries', 'audit_logs', 'deliveries', 'delivery_events', 'bank_accounts', 'print_templates', 'print_jobs', 'app_meta']
+  const tableList = ['branches', 'users', 'categories', 'products', 'product_sizes', 'toppings', 'product_toppings', 'orders', 'order_items', 'order_item_toppings', 'payments', 'order_events', 'dining_tables', 'shifts', 'shift_cash_txns', 'ingredients', 'recipes', 'inventory_stock', 'inventory_txns', 'suppliers', 'purchase_orders', 'purchase_order_items', 'customers', 'vouchers', 'promotions', 'finance_entries', 'audit_logs', 'deliveries', 'delivery_events', 'bank_accounts', 'print_templates', 'print_jobs', 'app_meta',
+    'warehouses', 'stock_counts', 'stock_count_lines', 'stock_transfers', 'stock_transfer_lines', 'ingredient_batches', 'wastage_logs',
+    'supplier_invoices', 'supplier_invoice_lines', 'supplier_payments', 'purchase_requisitions', 'purchase_requisition_lines',
+    'modifier_groups', 'modifiers', 'product_modifier_groups', 'combo_deals', 'combo_deal_items', 'price_lists', 'price_list_items',
+    'loyalty_accounts', 'loyalty_ledger', 'gift_cards', 'gift_card_txns', 'customer_addresses', 'delivery_zones', 'driver_devices', 'driver_positions',
+    'rider_payouts', 'cash_register_sessions', 'cash_movements', 'tax_rates', 'invoices', 'kpi_targets', 'expense_categories', 'expenses',
+    'reservations', 'printers', 'printer_routes', 'notifications', 'document_sequences']
   tableList.forEach((t) => {
     const r = db.exec(`SELECT COUNT(*) FROM ${t}`)
     counts[t] = r[0]?.values[0][0] as number

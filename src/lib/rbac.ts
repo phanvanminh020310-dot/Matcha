@@ -66,6 +66,7 @@ export const NAV: NavItem[] = [
   { to: '/display', label: 'Màn hình gọi số', icon: 'MonitorPlay', perm: 'pos.sell', group: 'Bán hàng' },
   { to: '/orders', label: 'Đơn hàng', icon: 'ReceiptText', perm: 'bo.orders', group: 'Bán hàng' },
   { to: '/delivery', label: 'Giao hàng & điều phối', icon: 'Bike', perm: 'bo.delivery', group: 'Bán hàng' },
+  { to: '/driver', label: 'App tài xế (GPS)', icon: 'Satellite', perm: 'bo.delivery', group: 'Bán hàng' },
 
   { to: '/dashboard', label: 'Tổng quan', icon: 'LayoutDashboard', perm: 'bo.dashboard', group: 'Vận hành' },
   { to: '/inventory', label: 'Kho & nguyên liệu', icon: 'Boxes', perm: 'bo.inventory', group: 'Vận hành' },

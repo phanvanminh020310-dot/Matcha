@@ -13,13 +13,24 @@ const NODE_H = 70
 
 const MODULE_ORDER: ModuleKey[] = ['sales', 'inventory', 'crm', 'hr', 'finance', 'system']
 
+const PER_COL = 7
+
+/**
+ * Bố cục ERD: mỗi module là một cụm cột, tự chia thêm cột con khi module có
+ * nhiều bảng (75 bảng) — không chồng lấn, vẫn nhìn được toàn cảnh.
+ */
 export function computeLayout(tables = TABLES) {
   const positions: Record<string, { x: number; y: number }> = {}
-  MODULE_ORDER.forEach((m, mi) => {
+  let x = 0
+  MODULE_ORDER.forEach((m) => {
     const list = tables.filter((t) => t.module === m)
+    const cols = Math.max(1, Math.ceil(list.length / PER_COL))
     list.forEach((t, i) => {
-      positions[t.name] = { x: mi * (NODE_W + 116) + (i % 2) * 26, y: i * (NODE_H + 34) }
+      const col = Math.floor(i / PER_COL)
+      const row = i % PER_COL
+      positions[t.name] = { x: x + col * (NODE_W + 46), y: row * (NODE_H + 30) }
     })
+    x += cols * (NODE_W + 46) + 90
   })
   return positions
 }

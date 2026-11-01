@@ -8,7 +8,7 @@ import { Badge, Button, Card, CardHeader, Field, Input, Modal, Select, Switch, T
 import { dbSizeBytes, run } from '../lib/db'
 import { REALTIME_SQL } from '../lib/realtime'
 import { RLS_SQL } from '../lib/rls'
-import { buildSeedSQL, keyWarning, loadCloud, localCounts, pullAll, pushAll, saveCloud, testCloud, toPgDDL, type CloudConfig, type SyncProgress } from '../lib/cloud'
+import { buildSeedSQL, cloudCounts, keyWarning, loadCloud, localCounts, pullAll, pushAll, saveCloud, testCloud, toPgDDL, type CloudConfig, type SyncProgress } from '../lib/cloud'
 import { downloadFile } from '../lib/format'
 import { PERM_GROUPS, getRoles, permsOf } from '../lib/permissions'
 import { METHOD_LABEL, cx, formatDateTime, formatVND } from '../lib/format'
@@ -202,7 +202,9 @@ function CloudDatabase() {
   const [testing, setTesting] = useState(false)
   const [result, setResult] = useState<{ ok: boolean; message: string; latency?: number } | null>(null)
   const [progress, setProgress] = useState<SyncProgress | null>(null)
-  const [busy, setBusy] = useState<'push' | 'pull' | null>(null)
+  const [busy, setBusy] = useState<'push' | 'pull' | 'connect' | null>(null)
+  const [diff, setDiff] = useState<{ table: string; local: number; cloud: number }[] | null>(null)
+  const [diffBusy, setDiffBusy] = useState(false)
   const counts = localCounts()
   const totalRows = counts.reduce((sum, c) => sum + c.rows, 0)
 
@@ -226,6 +228,50 @@ function CloudDatabase() {
       setBusy(null)
       setProgress(null)
     }
+  }
+
+  /** Máy mới: kiểm tra → lưu cấu hình → tải toàn bộ dữ liệu → bật tự đồng bộ. */
+  const connectThisMachine = async () => {
+    if (!cfg.url || !cfg.key) {
+      toast({ title: 'Thiếu thông tin', description: 'Cần Project URL và anon key trước đã.', tone: 'error' })
+      return
+    }
+    setBusy('connect')
+    setProgress(null)
+    try {
+      const t = await testCloud(cfg)
+      setResult(t)
+      if (!t.ok) throw new Error(t.message)
+      const res = await pullAll({ ...cfg, autoSync: true }, setProgress)
+      saveCloud({ ...cfg, autoSync: true, lastSync: new Date().toISOString(), lastRows: res.rows })
+      setCfg(loadCloud())
+      toast({ title: 'Đã kết nối máy này với cloud', description: `${res.rows.toLocaleString('vi-VN')} dòng đã tải về · tự đồng bộ đã bật`, tone: 'success' })
+      setTimeout(() => location.reload(), 1400)
+    } catch (e) {
+      toast({ title: 'Kết nối thất bại', description: (e as Error).message.slice(0, 180), tone: 'error' })
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  /** So sánh số dòng từng bảng: máy này ↔ cloud. */
+  const compareNow = async () => {
+    setDiffBusy(true)
+    try {
+      const cloud = await cloudCounts(cfg)
+      const local = new Map(counts.map((c) => [c.table, c.rows]))
+      const rows = Object.keys(cloud)
+        .map((t) => ({ table: t, local: local.get(t) ?? 0, cloud: cloud[t] }))
+        .filter((r) => r.local !== r.cloud)
+      setDiff(rows)
+      toast({
+        title: rows.length ? `${rows.length} bảng lệch giữa máy này và cloud` : 'Máy này khớp hoàn toàn với cloud',
+        description: rows.length ? 'Bấm "Kết nối & tải toàn bộ" để lấy dữ liệu cloud về' : 'Số dòng mọi bảng bằng nhau',
+        tone: rows.length ? 'error' : 'success',
+      })
+    } catch (e) {
+      toast({ title: 'Không đối chiếu được', description: (e as Error).message.slice(0, 160), tone: 'error' })
+    } finally { setDiffBusy(false) }
   }
 
   return (
@@ -301,6 +347,43 @@ function CloudDatabase() {
 
       <div className="space-y-3">
         <Card>
+          <CardHeader title="Máy mới? Bấm 1 nút là xong" subtitle="Dán URL + anon key + mã đồng bộ vào ô bên trái, rồi bấm nút này" icon={<Cloud size={16} />} />
+          <div className="space-y-2 p-4">
+            <div className="flex flex-wrap gap-2">
+              <Button variant="primary" icon={<Download size={15} />} disabled={!!busy || !cfg.url || !cfg.key} onClick={connectThisMachine}>
+                {busy === 'connect' ? 'Đang kết nối & tải…' : 'Kết nối & tải toàn bộ dữ liệu'}
+              </Button>
+              <Button variant="secondary" icon={<RefreshCw size={15} />} disabled={diffBusy || !cfg.url || !cfg.key} onClick={compareNow}>
+                {diffBusy ? 'Đang đối chiếu…' : 'Đối chiếu máy này ↔ cloud'}
+              </Button>
+            </div>
+            <p className="text-[11.5px] leading-relaxed text-ink-500 dark:text-ink-400">
+              Nút đầu tiên sẽ: kiểm tra kết nối → tải <b>toàn bộ</b> dữ liệu trên Postgres về máy này → bật <b>tự đồng bộ khi mở app</b>.
+              Dùng cho máy thứ 2 trở đi (máy thu ngân, laptop quản lý…). Dữ liệu cloud <b>không bị ghi đè</b> bởi thao tác này.
+            </p>
+            {diff && (
+              <div className="max-h-[200px] overflow-y-auto rounded-xl border border-ink-200 dark:border-ink-700">
+                <table className="w-full text-[11.5px]">
+                  <thead className="sticky top-0 bg-ink-50 text-left text-[10.5px] uppercase text-ink-400 dark:bg-ink-800">
+                    <tr><th className="px-2 py-1">Bảng</th><th className="px-2 py-1 text-right">Máy này</th><th className="px-2 py-1 text-right">Cloud</th></tr>
+                  </thead>
+                  <tbody>
+                    {diff.length === 0 && <tr><td colSpan={3} className="px-2 py-3 text-center text-matcha-700 dark:text-matcha-300">Khớp hoàn toàn ✅</td></tr>}
+                    {diff.slice(0, 60).map((r) => (
+                      <tr key={r.table} className="border-t border-ink-100 dark:border-ink-800">
+                        <td className="px-2 py-1 font-mono text-ink-500">{r.table}</td>
+                        <td className="px-2 py-1 text-right tabular-nums">{r.local.toLocaleString('vi-VN')}</td>
+                        <td className="px-2 py-1 text-right tabular-nums font-semibold">{r.cloud < 0 ? '—' : r.cloud.toLocaleString('vi-VN')}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </Card>
+
+        <Card>
           <CardHeader title="Bước 1 — Tạo bảng trên Postgres" subtitle="Chạy file SQL một lần trong SQL Editor" icon={<Database size={16} />} />
           <div className="space-y-2 p-4 text-[12px] text-ink-600 dark:text-ink-300">
             <ol className="list-inside list-decimal space-y-1">
@@ -313,8 +396,8 @@ function CloudDatabase() {
             <div className="flex flex-wrap gap-2 pt-1">
               <Button variant="primary" size="sm" icon={<Download size={14} />} onClick={() => {
                 downloadFile('matcha-schema.sql', toPgDDL(), 'text/plain;charset=utf-8')
-                toast({ title: 'Đã tải schema.sql', description: '33 bảng + chỉ mục + RLS cho anon key', tone: 'success' })
-              }}>schema.sql (33 bảng + RLS)</Button>
+                toast({ title: 'Đã tải schema.sql', description: '75 bảng + chỉ mục + RLS cho anon key', tone: 'success' })
+              }}>schema.sql (75 bảng + RLS)</Button>
               <Button size="sm" icon={<Download size={14} />} onClick={() => {
                 const sql = buildSeedSQL()
                 downloadFile('matcha-seed.sql', sql, 'text/plain;charset=utf-8')

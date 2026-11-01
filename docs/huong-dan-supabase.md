@@ -219,3 +219,22 @@ Tôi sẽ: kiểm tra kết nối từ phía tôi (nếu bạn muốn), chạy k
 ## Muốn dùng Neon / Postgres khác?
 
 App gọi REST kiểu **PostgREST** nên Supabase là thuận nhất. Với Neon, cần thêm PostgREST phía trước (Neon không tự có REST API) — nếu bạn thích hướng này, tôi có thể viết thêm adapter kết nối trực tiếp qua `pg` + một Edge Function nhỏ.
+
+---
+
+## 10. Máy thứ 2, thứ 3… (thu ngân, laptop quản lý) — quan trọng nhất
+
+Mỗi máy có CSDL riêng dưới trình duyệt. Muốn máy mới **thấy đúng dữ liệu trên cloud**:
+
+1. Mở app trên máy mới → đăng nhập.
+2. Vào **Cài đặt → Cơ sở dữ liệu**, dán 3 thứ: `Project URL`, `anon key`, `Mã đồng bộ (mk_…)`.
+3. Bấm **“Kết nối & tải toàn bộ dữ liệu”** (nút lớn ở cột phải).
+   → App kiểm tra kết nối, tải **toàn bộ** dữ liệu Postgres về máy, rồi **bật tự đồng bộ khi mở app**.
+4. Kiểm chứng: bấm **“Đối chiếu máy này ↔ cloud”** → phải hiện *Khớp hoàn toàn*. Nếu còn bảng lệch, bấm lại nút kết nối.
+
+Lưu ý:
+
+- Máy đã cấu hình mà **chưa từng tải** → app tự tải ngay lần mở đầu tiên (không cần bật gì).
+- “Kết nối & tải toàn bộ” **không ghi đè** dữ liệu cloud; muốn đẩy từ máy này lên thì bấm **Đẩy dữ liệu lên**.
+- Đồng bộ chỉ ghi đè bảng nào **cloud có dữ liệu**; bảng cloud rỗng thì app giữ nguyên dữ liệu trên máy (chống mất dữ liệu).
+- Máy tài xế: mở `#/driver` trên điện thoại (HTTPS) → **Bật chia sẻ vị trí** để phát GPS thật lên bảng `driver_positions`.

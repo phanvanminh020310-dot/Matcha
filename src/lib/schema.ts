@@ -4,7 +4,9 @@
  * TABLE_META cung cấp mô tả nghiệp vụ tiếng Việt dùng cho Data Explorer + ERD.
  */
 
-export const SCHEMA_VERSION = 5;
+import { COLUMN_META_EXTRA, DDL_EXTRA, TABLES_EXTRA } from './schema-extra'
+
+export const SCHEMA_VERSION = 6;
 
 export const DDL = /* sql */ `
 PRAGMA foreign_keys = ON;
@@ -467,7 +469,7 @@ CREATE TABLE roles (
   created_at TEXT NOT NULL
 );
 CREATE INDEX idx_roles_created ON roles(created_at);
-`;
+` + DDL_EXTRA;
 
 export type ModuleKey = 'sales' | 'inventory' | 'crm' | 'hr' | 'finance' | 'system';
 
@@ -534,6 +536,7 @@ export const TABLES: TableMeta[] = [
   { name: 'print_jobs', label: 'Hàng đợi in', module: 'system', icon: '📤', description: 'Lịch sử lệnh in: mẫu, bản ghi liên quan, số bản, máy in, trạng thái.' },
   { name: 'app_meta', label: 'Cấu hình', module: 'system', icon: '⚙️', description: 'Metadata ứng dụng: phiên bản schema, seed time.' },
   { name: 'roles', label: 'Vai trò & quyền', module: 'system', icon: '🛡️', description: 'Vai trò RBAC động: tập quyền theo module, gán cho người dùng, không cần build lại app.' },
+  ...TABLES_EXTRA,
 ];
 
 const C = (name: string, type: string, description: string, extra: Partial<ColumnMeta> = {}): ColumnMeta => ({
@@ -541,7 +544,7 @@ const C = (name: string, type: string, description: string, extra: Partial<Colum
 });
 
 /** Mô tả cột — hiển thị ở tab "Cấu trúc bảng" của Data Explorer. */
-export const COLUMN_META: Record<string, ColumnMeta[]> = {
+const COLUMN_META_CORE: Record<string, ColumnMeta[]> = {
   branches: [
     C('id', 'INTEGER', 'Khoá chính', { pk: true }),
     C('code', 'TEXT', 'Mã chi nhánh', { unique: true }),
@@ -929,6 +932,9 @@ export const COLUMN_META: Record<string, ColumnMeta[]> = {
     C('created_at', 'TEXT', 'Thời điểm tạo'),
   ],
 };
+
+/** Mô tả cột: bảng lõi viết tay + bảng mở rộng sinh tự động từ DDL. */
+export const COLUMN_META: Record<string, ColumnMeta[]> = { ...COLUMN_META_CORE, ...COLUMN_META_EXTRA };
 
 export const FK_EDGES: { from: string; fromCol: string; to: string; toCol: string }[] = Object.entries(COLUMN_META).flatMap(
   ([table, cols]) =>

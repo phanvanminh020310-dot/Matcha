@@ -58,6 +58,9 @@ export function saveCloud(cfg: CloudConfig) {
   localStorage.setItem(KEY, JSON.stringify(clean))
 }
 
+/** URL cloud đã chuẩn hoá (bỏ /rest/v1, bỏ dấu / cuối). */
+export const normCloudUrl = (url: string) => normUrl(url ?? '')
+
 /** Cảnh báo cấu hình: service key có toàn quyền, chỉ nên dùng khi thử nghiệm. */
 export function keyWarning(key: string): string | null {
   const k = key.trim()
@@ -69,7 +72,7 @@ export function keyWarning(key: string): string | null {
 }
 
 // Chấp nhận cả URL gốc lẫn URL dán kèm /rest/v1 (lỗi copy rất phổ biến)
-const normUrl = (url: string) =>
+export const normUrl = (url: string) =>
   url.trim().replace(/\/+$/, '').replace(/\/rest\/v1$/i, '').replace(/\/+$/, '')
 
 /* ------------------------------ DDL Postgres ------------------------------ */
@@ -124,11 +127,18 @@ const pkOf = (table: string) => pkCols(table)[0]
  */
 export const SYNC_ORDER = [
   'branches', 'users', 'roles', 'categories', 'products', 'product_sizes', 'toppings', 'product_toppings',
-  'suppliers', 'ingredients', 'recipes', 'inventory_stock', 'inventory_txns',
-  'purchase_orders', 'purchase_order_items', 'dining_tables', 'customers', 'vouchers', 'promotions',
+  'warehouses', 'suppliers', 'ingredients', 'recipes', 'inventory_stock', 'inventory_txns',
+  'ingredient_batches', 'stock_counts', 'stock_count_lines', 'stock_transfers', 'stock_transfer_lines', 'wastage_logs',
+  'purchase_orders', 'purchase_order_items', 'purchase_requisitions', 'purchase_requisition_lines',
+  'supplier_invoices', 'supplier_invoice_lines', 'supplier_payments',
+  'modifier_groups', 'modifiers', 'product_modifier_groups', 'combo_deals', 'combo_deal_items', 'price_lists', 'price_list_items',
+  'dining_tables', 'customers', 'customer_addresses', 'loyalty_accounts', 'gift_cards', 'vouchers', 'promotions',
   'shifts', 'shift_cash_txns', 'orders', 'order_items', 'order_item_toppings', 'payments', 'order_events',
-  'finance_entries', 'audit_logs', 'deliveries', 'delivery_events', 'bank_accounts',
-  'print_templates', 'print_jobs', 'app_meta',
+  'loyalty_ledger', 'gift_card_txns', 'tax_rates', 'invoices',
+  'finance_entries', 'cash_register_sessions', 'cash_movements', 'expense_categories', 'expenses', 'kpi_targets',
+  'audit_logs', 'deliveries', 'delivery_events', 'delivery_zones', 'driver_devices', 'driver_positions', 'rider_payouts',
+  'reservations', 'print_templates', 'printers', 'printer_routes', 'notifications', 'document_sequences',
+  'bank_accounts', 'print_jobs', 'app_meta',
 ] as const
 
 /* ------------------------------ Seed SQL ------------------------------ */
@@ -228,6 +238,25 @@ const writeError = (table: string, status: number, body: string) => {
     return `Bị chặn ghi ở bảng ${table}: cloud đã bật RLS nhưng mã đồng bộ (x-sync-token) sai hoặc chưa nhập. Vào Cài đặt → Cơ sở dữ liệu → dán "Mã đồng bộ" rồi thử lại.`
   }
   return `Ghi ${table} thất bại: HTTP ${status} ${body.slice(0, 160)}`
+}
+
+/** Đếm số dòng mỗi bảng trên cloud (HEAD + count=exact) — dùng cho màn "Đối chiếu máy này ↔ cloud". */
+export async function cloudCounts(cfg: CloudConfig): Promise<Record<string, number>> {
+  const base = normUrl(cfg.url)
+  const out: Record<string, number> = {}
+  await Promise.all(SYNC_ORDER.map(async (t) => {
+    try {
+      const res = await fetch(`${base}/rest/v1/${t}?select=*`, {
+        method: 'HEAD',
+        headers: headers(cfg, { Prefer: 'count=exact', Range: '0-0' }),
+        signal: AbortSignal.timeout(15000),
+      })
+      const cr = res.headers.get('content-range') ?? ''
+      const total = Number(cr.split('/')[1] ?? 0)
+      out[t] = Number.isFinite(total) ? total : 0
+    } catch { out[t] = -1 }
+  }))
+  return out
 }
 
 export interface SyncProgress { table: string; index: number; total: number; rows: number; done?: boolean }
@@ -330,7 +359,8 @@ export async function pullAll(cfg: CloudConfig, onProgress?: (p: SyncProgress) =
   //    Bảng cấu hình (roles/app_meta) mà cloud rỗng thì GIỮ dữ liệu trên máy —
   //    tránh trường hợp máy mất sạch vai trò/phân quyền sau khi đồng bộ.
   const planMap = new Map(plan.map((p) => [p.table, p.rows]))
-  const keepLocal = new Set(['roles', 'app_meta'].filter((t) => (planMap.get(t)?.length ?? 0) === 0))
+  // Bảng nào cloud trả 0 dòng thì GIỮ NGUYÊN dữ liệu trên máy (không bao giờ xoá trắng vì cloud thiếu bảng/cột)
+  const keepLocal = new Set(SYNC_ORDER.filter((t) => (planMap.get(t)?.length ?? 0) === 0))
   const statements: { sql: string; params: SqlValue[] }[] = []
   for (const name of [...SYNC_ORDER].reverse()) {
     if (keepLocal.has(name)) continue

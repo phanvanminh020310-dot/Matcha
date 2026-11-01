@@ -114,6 +114,14 @@ Chi nhánh chuyển được ở góc trên phải: **Q1 · TP.HCM**, **Q3 · TP
 - HUD kiểu app vận tải: số xe đang chạy, còn bao nhiêu km / ETA / tiền thu hộ của xe đang chọn, danh sách đội xe bấm là bay tới.
 - Điều khiển: play/pause, chọn tốc độ 0.5×–4×, ẩn/hiện 3D, tự căn toàn tuyến, về kho, xoay trái/phải. Mất mạng → tự chuyển nền raster OSM.
 
+### GPS THẬT — App tài xế (`#/driver`, mở trên điện thoại của shipper)
+
+- Bật **chia sẻ vị trí** → trình duyệt lấy GPS thật (`watchPosition`, độ chính xác cao), tự gửi khi di chuyển > 15 m hoặc 20 giây.
+- Mỗi điểm ghi vào bảng **`driver_positions`**: máy (SQLite) **và** Postgres (Supabase) — máy điều phối ở chi nhánh khác thấy xe chạy ngay, không phải chờ đồng bộ cả gói 62.000 dòng.
+- Trang Giao hàng → *Bản đồ 3D* tự đọc GPS 5 giây/lần; xe nào có điểm mới (< 5 phút) hiện ở **vị trí thật** kèm nhãn **“N xe đang phát GPS thật”**; không có GPS thì mới mô phỏng theo tuyến OSRM.
+- Tài xế làm luôn nghiệp vụ trên điện thoại: **Nhận đơn → Đã lấy hàng → Bắt đầu giao → Giao xong (thu COD)**, gọi khách, mở chỉ đường Google Maps, chọn gắn GPS vào vận đơn nào.
+- Trình duyệt chỉ cho lấy GPS khi trang chạy **HTTPS** — bản GitHub Pages đã có; nhớ bấm *Cho phép vị trí*.
+
 ### Giao hàng chuẩn Shopee (màn hình *Giao hàng & điều phối*)
 
 - **Bản đồ trực tuyến thật**: tile OpenStreetMap + Leaflet, marker SVG cho quán / điểm giao / tài xế.
@@ -222,18 +230,21 @@ POS checkout()
   → Data Explorer (thấy dòng mới) & ERP Simulator (diff từng bước)
 ```
 
-### Cơ sở dữ liệu (34 bảng)
+### Cơ sở dữ liệu — **75 bảng**, schema v6 (mức vận hành thương mại)
 
 | Module | Bảng |
 | --- | --- |
-| Bán hàng | `orders`, `order_items`, `order_item_toppings`, `payments`, `order_events`, `dining_tables`, `categories`, `products`, `product_sizes`, `toppings`, `product_toppings` |
-| Kho & mua hàng | `ingredients`, `recipes` (BOM), `inventory_stock`, `inventory_txns`, `suppliers`, `purchase_orders`, `purchase_order_items` |
-| Khách hàng | `customers`, `vouchers`, `promotions` |
+| Bán hàng & thực đơn | `orders`, `order_items`, `order_item_toppings`, `payments`, `order_events`, `dining_tables`, `reservations`, `categories`, `products`, `product_sizes`, `toppings`, `product_toppings`, `modifier_groups`, `modifiers`, `product_modifier_groups`, `combo_deals`, `combo_deal_items`, `price_lists`, `price_list_items` |
+| Kho & mua hàng | `warehouses`, `ingredients`, `recipes` (BOM), `inventory_stock`, `inventory_txns`, `ingredient_batches` (lô/hạn dùng), `stock_counts`, `stock_count_lines`, `stock_transfers`, `stock_transfer_lines`, `wastage_logs`, `suppliers`, `purchase_orders`, `purchase_order_items`, `purchase_requisitions`, `purchase_requisition_lines`, `supplier_invoices`, `supplier_invoice_lines`, `supplier_payments` |
+| Khách hàng & CRM | `customers`, `customer_addresses`, `loyalty_accounts`, `loyalty_ledger`, `gift_cards`, `gift_card_txns`, `vouchers`, `promotions` |
+| Giao hàng | `deliveries`, `delivery_events`, `delivery_zones`, `driver_devices`, `driver_positions` (GPS thật), `rider_payouts` (đối soát COD) |
 | Nhân sự | `users`, `shifts`, `shift_cash_txns` |
-| Tài chính | `finance_entries` |
-| Giao hàng | `deliveries`, `delivery_events` |
-| Thanh toán & in ấn | `bank_accounts`, `print_templates`, `print_jobs` |
-| Hệ thống | `branches`, `audit_logs`, `app_meta` |
+| Tài chính & kế toán | `finance_entries`, `cash_register_sessions`, `cash_movements`, `expense_categories`, `expenses`, `tax_rates`, `invoices`, `kpi_targets`, `bank_accounts` |
+| In ấn | `print_templates`, `print_jobs`, `printers`, `printer_routes` |
+| Hệ thống | `branches`, `roles`, `audit_logs`, `notifications`, `document_sequences`, `app_meta`, `sync_tokens` (trên cloud) |
+
+Ràng buộc thật: **PK/FK đầy đủ**, `CHECK` cho mọi cột trạng thái (ví dụ `status IN ('unpaid','partial','paid','overdue','void')`), `UNIQUE` cho mã chứng từ, index cho truy vấn nóng.
+Máy đang chạy schema cũ (v5) **tự nâng cấp tại chỗ** khi mở app: tạo bảng mới + sinh dữ liệu cho bảng mới, **không mất dữ liệu cũ**.
 
 ERD trực quan: mở **Data Explorer → ERD** (chụp sẵn ở `docs/screenshots/19-data-explorer-erd.png`, xuất SVG được từ UI).
 
