@@ -175,6 +175,14 @@ export function SettingsPage() {
 }
 
 
+/** ISO (UTC) → giờ Việt Nam */
+function vnTime(iso: string | null) {
+  if (!iso) return '—'
+  const t = new Date(new Date(iso).getTime() + 7 * 3600 * 1000)
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${p(t.getUTCDate())}/${p(t.getUTCMonth() + 1)}/${t.getUTCFullYear()} ${p(t.getUTCHours())}:${p(t.getUTCMinutes())}`
+}
+
 /* ------------------------- Cơ sở dữ liệu thật (Postgres) ------------------------- */
 function CloudDatabase() {
   const { toast } = useApp()
@@ -268,7 +276,7 @@ function CloudDatabase() {
               </div>
             </div>
           )}
-          {cfg.lastSync && <p className="text-[11px] text-ink-400">Lần đồng bộ cuối: {formatDateTime(new Date(cfg.lastSync).toISOString().slice(0, 19).replace('T', ' '))} · {cfg.lastRows.toLocaleString('vi-VN')} dòng</p>}
+          {cfg.lastSync && <p className="text-[11px] text-ink-400">Lần đồng bộ cuối: {vnTime(cfg.lastSync)} · {cfg.lastRows.toLocaleString('vi-VN')} dòng</p>}
         </div>
       </Card>
 
