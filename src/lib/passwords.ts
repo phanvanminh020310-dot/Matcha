@@ -4,8 +4,12 @@
  * - Mỗi người dùng có salt riêng (16 byte ngẫu nhiên) → cùng mật khẩu vẫn ra hash khác nhau.
  * - 120.000 vòng: dò mật khẩu bằng GPU rất chậm.
  */
+import bcrypt from 'bcryptjs'
+
 const ITER = 120000
 const PREFIX = 'pbkdf2$'
+/** Dự phòng khi trình duyệt không có WebCrypto (máy quá cũ, chế độ không bảo mật, webview lạ). */
+const BCRYPT_ROUNDS = 10
 
 const enc = new TextEncoder()
 
@@ -19,6 +23,17 @@ function unb64(text: string) {
   const raw = atob(text)
   const out = new Uint8Array(raw.length)
   for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i)
+  return out
+}
+
+function webCryptoOk() {
+  return typeof crypto !== 'undefined' && !!crypto.subtle && typeof crypto.subtle.importKey === 'function'
+}
+
+function randomBytes(n: number) {
+  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') return crypto.getRandomValues(new Uint8Array(n))
+  const out = new Uint8Array(n)
+  for (let i = 0; i < n; i++) out[i] = Math.floor(Math.random() * 256)
   return out
 }
 
@@ -38,7 +53,7 @@ function safeEqual(a: string, b: string) {
 
 /** Đã là hash chưa (dữ liệu cũ còn lưu chữ thường). */
 export function looksHashed(value: string) {
-  return value.startsWith(PREFIX)
+  return value.startsWith(PREFIX) || value.startsWith('$2')
 }
 
 /** Mật khẩu chưa được đặt / tài khoản bị khoá đăng nhập. */
@@ -47,14 +62,24 @@ export function isLocked(value: string | null | undefined) {
 }
 
 export async function hashPassword(password: string): Promise<string> {
-  const salt = crypto.getRandomValues(new Uint8Array(16))
-  const hash = await derive(password, salt, ITER)
-  return `${PREFIX}${ITER}$${b64(salt)}$${b64(hash)}`
+  // Đường chuẩn: PBKDF2 120.000 vòng bằng WebCrypto
+  if (webCryptoOk()) {
+    try {
+      const salt = randomBytes(16)
+      const hash = await derive(password, salt, ITER)
+      return `${PREFIX}${ITER}$${b64(salt)}$${b64(hash)}`
+    } catch { /* rơi xuống bản dự phòng bên dưới */ }
+  }
+  // Dự phòng: bcrypt thuần JS — vẫn là hash mạnh, không lưu chữ thường
+  return bcrypt.hashSync(password, BCRYPT_ROUNDS)
 }
 
 /** Kiểm tra mật khẩu. `legacy: true` nghĩa là bản ghi còn lưu chữ thường và cần nâng cấp. */
 export async function verifyPassword(password: string, stored: string): Promise<{ ok: boolean; legacy: boolean }> {
   if (!stored || stored === '!') return { ok: false, legacy: false }
+  if (stored.startsWith('$2')) {
+    try { return { ok: bcrypt.compareSync(password, stored), legacy: false } } catch { return { ok: false, legacy: false } }
+  }
   if (!looksHashed(stored)) return { ok: stored === password, legacy: true }
   const parts = stored.split('$')
   if (parts.length !== 4) return { ok: false, legacy: false }
