@@ -44,6 +44,14 @@ Bấm là dùng — không đăng nhập, không cài đặt. Màn hình đăng 
 | --- | --- |
 | ![Realtime](docs/screenshots/45-realtime-bao-thay-doi.png) | ![RLS](docs/screenshots/43-rls-kiem-tra-quyen-ghi.png) |
 
+| Bản đồ 3D điều phối trực tiếp (MapLibre · toà nhà 3D) | Sơ đồ ERP 3D (bàn điều khiển nghiêng) |
+| --- | --- |
+| ![Map3D](docs/screenshots/48-ban-do-3d-giao-hang.png) | ![ERP3D](docs/screenshots/49-erp-simulator-3d.png) |
+
+| Quản trị dữ liệu (CRUD mọi bảng) | Vai trò & phân quyền (RBAC động) |
+| --- | --- |
+| ![Admin](docs/screenshots/50-quan-tri-du-lieu.png) | ![Roles](docs/screenshots/51-vai-tro-phan-quyen.png) |
+
 Các ảnh khác trong [`docs/screenshots`](docs/screenshots): đăng nhập, thanh toán, hoá đơn, đơn hàng, thực đơn, công thức, kho, mua hàng, khách hàng, khuyến mãi, nhân sự, tài chính, báo cáo, cài đặt, SQL Console, dark mode, tablet.
 
 ---
@@ -99,6 +107,13 @@ Chi nhánh chuyển được ở góc trên phải: **Q1 · TP.HCM**, **Q3 · TP
 11. **Báo cáo**: 7 nhóm báo cáo trong UI (sản phẩm, danh mục, giờ, kênh, nhân viên, khuyến mãi, ca) với biểu đồ + bảng + **xuất CSV**; các chỉ tiêu còn lại (tồn kho, P&L, công nợ) nằm ở trang Kho / Tài chính.
 12. **Cài đặt**: thông tin chi nhánh (tên, địa chỉ, hotline, VAT), phương thức thanh toán, **sơ đồ bàn kéo thả**, **ma trận phân quyền** 5 vai trò × 20 quyền, **audit log**, thông tin CSDL + Reset.
 
+### Bản đồ 3D trực tiếp (màn hình *Giao hàng & điều phối → Bản đồ 3D trực tiếp*)
+
+- **MapLibre GL + vector tiles OpenFreeMap** (miễn phí, không API key): toà nhà **đổ khối 3D** (`fill-extrusion` theo chiều cao thật), đường phát sáng, sương chân trời, nghiêng 55–75°, xoay, zoom.
+- **Shipper chạy mượt trên tuyến OSRM thật**: nội suy vị trí theo thời gian, mũi tên quay theo hướng lái, vệt đường đã đi, vòng pulse tại điểm đến, camera **bám xe**.
+- HUD kiểu app vận tải: số xe đang chạy, còn bao nhiêu km / ETA / tiền thu hộ của xe đang chọn, danh sách đội xe bấm là bay tới.
+- Điều khiển: play/pause, chọn tốc độ 0.5×–4×, ẩn/hiện 3D, tự căn toàn tuyến, về kho, xoay trái/phải. Mất mạng → tự chuyển nền raster OSM.
+
 ### Giao hàng chuẩn Shopee (màn hình *Giao hàng & điều phối*)
 
 - **Bản đồ trực tuyến thật**: tile OpenStreetMap + Leaflet, marker SVG cho quán / điểm giao / tài xế.
@@ -127,15 +142,29 @@ Chi nhánh chuyển được ở góc trên phải: **Q1 · TP.HCM**, **Q3 · TP
 ### Cơ sở dữ liệu thật — Postgres (Supabase / Neon)
 
 - **Cài đặt → Cơ sở dữ liệu**: dán `Project URL` + `anon key` của Supabase (hoặc PostgREST bất kỳ) → *Kiểm tra kết nối* → *Đẩy dữ liệu lên* / *Tải từ cloud*.
-- Tải **`schema.sql`** (sinh tự động từ `src/lib/schema.ts`): 33 bảng, khoá ngoại, chỉ mục, **RLS + GRANT** cho `anon`/`authenticated` — chạy 1 lần trong SQL Editor là xong.
+- Tải **`schema.sql`** (sinh tự động từ `src/lib/schema.ts`): 34 bảng, khoá ngoại, chỉ mục, **RLS + GRANT** cho `anon`/`authenticated` — chạy 1 lần trong SQL Editor là xong.
 - Tải **`seed.sql`**: toàn bộ dữ liệu đang chạy (≈60.000 dòng) dưới dạng INSERT, dùng được cho `psql` hoặc SQL Editor.
 - Bật *Tự tải dữ liệu từ cloud khi mở app* → nhiều máy dùng chung một CSDL; khi chưa cấu hình, app vẫn chạy offline trên **SQLite WASM + IndexedDB** (không mất tính năng).
 - File mẫu: `docs/sql/schema.postgres.sql` (đã kiểm tra cú pháp bằng parser PostgreSQL).
 - **Hướng dẫn bật Supabase từng bước (7 bước, kèm xử lý sự cố): [`docs/huong-dan-supabase.md`](docs/huong-dan-supabase.md)**
-- **Trạng thái thực tế**: một project Supabase (region Singapore, PostgreSQL 17) đã được tạo và nạp sẵn **60.854 dòng / 33 bảng**, kiểm tra 47 khoá ngoại không có dòng mồ côi. Để dùng, chỉ cần dán `Project URL` + `anon key` vào *Cài đặt → Cơ sở dữ liệu* rồi bấm **Tải từ cloud**.
+- **Trạng thái thực tế**: một project Supabase (region Singapore, PostgreSQL 17) đã được tạo và nạp sẵn **60.854 dòng / 34 bảng**, kiểm tra 47 khoá ngoại không có dòng mồ côi. Để dùng, chỉ cần dán `Project URL` + `anon key` vào *Cài đặt → Cơ sở dữ liệu* rồi bấm **Tải từ cloud**.
 - **Realtime 2 chiều**: bật *Theo dõi thay đổi realtime* → app nối WebSocket tới Supabase Realtime (tự viết client Phoenix, không thêm thư viện) trên **11 bảng** (`orders`, `order_items`, `payments`, `order_events`, `deliveries`, `delivery_events`, `inventory_stock`, `inventory_txns`, `customers`, `shifts`, `print_jobs`). Máy khác ghi dữ liệu → hiện banner *“Có thay đổi mới từ cloud”* kèm nút **Đồng bộ ngay**; badge hiển thị trạng thái `realtime`. Bật bằng cách chạy **`docs/sql/realtime.sql`** (nút tải trong Cài đặt).
 - **Bảo mật ghi (RLS + mã đồng bộ)**: anon key nằm trong bundle nên **không thể** là thứ bảo vệ dữ liệu. Chạy **`docs/sql/rls.sql`** → mọi lệnh INSERT/UPDATE/DELETE yêu cầu header `x-sync-token` khớp SHA-256 trong bảng `sync_tokens` (kiểm tra bằng hàm `sync_ok()`, chạy `security definer`). Mã cấp theo thiết bị, có thể giới hạn theo `branch_id` (mã của Q1 không ghi được dữ liệu Q3). 11 bảng realtime vẫn mở quyền **đọc** (Supabase Realtime cần quyền SELECT để bắn sự kiện); các bảng còn lại (`users`, kho, tài chính…) yêu cầu mã ngay cả khi đọc. Có `docs/sql/rls-off.sql` để quay lại trạng thái mở khi thử nghiệm.
 - **Cơ chế đồng bộ**: *Đẩy dữ liệu lên* = UPSERT theo khoá chính (an toàn, không mất dữ liệu nếu đứt mạng); *Xoá & đẩy lại* = xoá sạch cloud rồi nạp lại (dùng khi cloud bị lệch); *Tải từ cloud* = kéo toàn bộ, phân trang 500 dòng/lần theo đúng khoá chính (kể cả bảng khoá ghép như `product_toppings`).
+
+### Quản trị dữ liệu & phân quyền (mới — dùng được ngay, không cần sửa code)
+
+**Quản trị dữ liệu (`#/admin`)** — CRUD tổng quát cho **34 bảng**:
+- Tự sinh bảng + form từ metadata schema: nhãn tiếng Việt từng cột, PK/FK/UNIQUE, nullable, kiểu số/ngày/bool.
+- **Thêm / Sửa / Nhân bản / Xoá** mọi danh mục (chi nhánh, nhân viên, món, size, topping, công thức, NCC, nguyên liệu, khách, voucher, bàn, mẫu in, vai trò…).
+- Khoá ngoại: chọn từ dropdown lấy dữ liệu thật từ bảng cha; **xoá an toàn** — quét 47 quan hệ FK, báo “đang được dùng bởi N dòng ở bảng X” và chỉ xoá dây chuyền khi bạn xác nhận.
+- Tìm kiếm/sắp xếp/phân trang, lọc theo chi nhánh, ẩn/hiện cột, xuất CSV, mọi thao tác ghi **audit_logs** (ai sửa, giá trị trước–sau).
+
+**Vai trò & phân quyền (`#/roles`)** — RBAC **động** (lưu ở bảng `roles`, không hard-code):
+- 6 vai trò sẵn có (Chủ chuỗi, Quản lý chi nhánh, Thu ngân, Pha chế, Kế toán, Tài xế) + **thêm vai trò tuỳ ý**.
+- **Ma trận 24 quyền × vai trò** theo 7 nhóm module: tick là lưu, **hiệu lực ngay** — menu và nút thao tác tự ẩn/hiện, vào thẳng URL không có quyền vẫn bị chặn.
+- Gán vai trò cho từng nhân viên ngay trong bảng.
+- Schema v5 có **migration tự động**: máy đang có dữ liệu cũ được nâng cấp tại chỗ, không mất dữ liệu.
 
 ### Data Explorer (dành cho dân kỹ thuật)
 - Danh sách **28 bảng** theo module kèm số dòng & dung lượng CSDL.
@@ -146,7 +175,8 @@ Chi nhánh chuyển được ở góc trên phải: **Q1 · TP.HCM**, **Q3 · TP
 - **Chế độ chuyên gia**: bật mới được sửa một ô dữ liệu; mỗi lần sửa ghi `audit_logs` (giá trị trước/sau).
 
 ### ERP Simulator
-- **Bản đồ module** / **Luồng dữ liệu** dạng React Flow, node hiển thị **số liệu sống** (đơn hôm nay, phiếu KDS, mặt hàng dưới định mức, PO chờ nhận, công nợ, chi phí tháng, khách, voucher…), cạnh động theo module đang xử lý.
+- **Sơ đồ 3D**: bàn điều khiển nghiêng 3D (CSS 3D + SVG), module là khối kính nổi, dây dữ liệu có **gói tin chạy liên tục**, module đang xử lý phát sáng; kéo để xoay, Shift+kéo để nghiêng, lăn chuột zoom, tự xoay, thanh nghiêng 20–74°.
+- Node hiển thị **số liệu sống** (đơn hôm nay, phiếu KDS, mặt hàng dưới định mức, PO chờ nhận, công nợ, chi phí tháng, khách, voucher…), cạnh động theo module đang xử lý.
 - **5 kịch bản chạy trên chính CSDL thật**: một đơn hàng đi qua toàn hệ thống, nhập hàng từ NCC, chạy một ca làm việc, hao hụt & kiểm kê, huỷ đơn & hoàn kho.
 - Điều khiển **tốc độ / tạm dừng / từng bước**, mỗi bước hiện **data diff** (bảng · dòng · trước → sau) — chụp 17 bảng trước và sau bước để tính diff nên số liệu không phải "diễn".
 
@@ -192,7 +222,7 @@ POS checkout()
   → Data Explorer (thấy dòng mới) & ERP Simulator (diff từng bước)
 ```
 
-### Cơ sở dữ liệu (33 bảng)
+### Cơ sở dữ liệu (34 bảng)
 
 | Module | Bảng |
 | --- | --- |
@@ -242,7 +272,7 @@ Giới hạn của gói free: băng thông/ưu lượng theo nhà cung cấp —
 
 ## 7. Ghi chú kỹ thuật & giới hạn
 
-- **Lưu trữ**: mặc định SQLite WASM + IndexedDB (riêng từng máy). Muốn dùng chung nhiều máy → cấu hình **Postgres (Supabase/Neon)** ở *Cài đặt → Cơ sở dữ liệu*; app đẩy/kéo toàn bộ 33 bảng qua REST. Chưa cấu hình thì vẫn chạy đầy đủ, offline.
+- **Lưu trữ**: mặc định SQLite WASM + IndexedDB (riêng từng máy). Muốn dùng chung nhiều máy → cấu hình **Postgres (Supabase/Neon)** ở *Cài đặt → Cơ sở dữ liệu*; app đẩy/kéo toàn bộ 34 bảng qua REST. Chưa cấu hình thì vẫn chạy đầy đủ, offline.
 - **Đồng bộ đa tab** trong cùng máy qua `BroadcastChannel`; **đồng bộ đa máy** qua Postgres + Supabase Realtime (banner *Có thay đổi mới từ cloud*).
 - **Bảo mật cloud**: quyền ghi do RLS quyết định, dựa trên *mã đồng bộ* (SHA-256 lưu ở bảng `sync_tokens`, mã gốc chỉ nằm trên máy người dùng). Lộ anon key cũng không xoá/sửa được dữ liệu. Mức tiếp theo (chặn cả quyền đọc + phân quyền theo người) là **Supabase Auth + `auth.uid()`**, đã ghi sẵn lộ trình trong `docs/huong-dan-supabase.md`.
 - **VietQR**: payload đúng chuẩn EMVCo/NAPAS 247, **quét được thật** bằng app ngân hàng; phần *xác nhận tiền về* là thao tác của thu ngân/kế toán trên màn hình đối soát (webhook ngân hàng cần hợp đồng với cổng thanh toán — nằm ngoài phạm vi bản này). MoMo/ZaloPay: tạo yêu cầu + callback mô phỏng.
@@ -285,7 +315,7 @@ Nếu bị chặn ở đâu (quyền GitHub, dịch vụ deploy…), dự án v�
 | POS → kênh *Giao hàng* → chọn địa chỉ trên bản đồ → phí tự tính | ✅ 0,7 km · 2 phút · phí 12.000 ₫ (OSRM) |
 | POS tạo đơn giao → **tự sinh vận đơn** trong bảng điều phối | ✅ cột *Chờ điều phối* 1 → 2 |
 | Studio in ấn: 6 mẫu, xem trước có QR + barcode SVG | ✅ QR 1 + barcode 1 trên preview K80 |
-| Xuất `schema.sql` / `seed.sql` cho Postgres | ✅ 33 bảng + 33 RLS, 6,0 MB INSERT (60.854 dòng), cú pháp hợp lệ |
+| Xuất `schema.sql` / `seed.sql` cho Postgres | ✅ 34 bảng + RLS, 6,0 MB INSERT (60.854 dòng), cú pháp hợp lệ |
 | Cloud thật: pull 60.854 dòng về máy (production, Pages) | ✅ `auto-pull xong 60854 dòng`, 0 lỗi console |
 | Cloud thật: đẩy UPSERT không làm mất dữ liệu | ✅ khớp 100% sau khi đẩy (orders 4.101 · order_items 6.449 · inventory_txns 22.808) |
 | Realtime: máy khác UPDATE 1 dòng `customers` trên Postgres | ✅ banner “Có thay đổi mới từ cloud” hiện sau ~2 s (WebSocket `postgres_changes`) |
@@ -294,6 +324,14 @@ Nếu bị chặn ở đâu (quyền GitHub, dịch vụ deploy…), dự án v�
 | RLS: UPDATE/DELETE khi không có mã | ✅ 0 dòng bị ảnh hưởng (RLS lọc im lặng), dữ liệu giữ nguyên |
 | RLS: ghi **có** mã đồng bộ | ✅ 201/204, `rpc/sync_ok` trả `true`; đọc `users` chỉ được khi có mã |
 | **Tải từ cloud khi thiếu mã** (RLS chặn đọc) | ✅ báo lỗi rõ ràng, **dữ liệu trên máy giữ nguyên** (pull tải đủ rồi mới ghi đè trong 1 transaction), banner cảnh báo + nút *Mở Cài đặt* |
+| Bản đồ 3D: WebGL + vector tiles + toà nhà đổ khối | ✅ canvas MapLibre, pitch 55–62°, nghiêng/xoay/zoom, 0 lỗi console (worker tự host) |
+| Bản đồ 3D: shipper chạy trên tuyến OSRM | ✅ 4 vận đơn · 2 tài xế · tuyến 0,6–1 km, marker quay theo hướng, camera bám xe |
+| ERP Simulator 3D | ✅ 8 module · 10 luồng · gói tin chạy, module đang xử lý phát sáng |
+| Quản trị dữ liệu: thêm / sửa / xoá | ✅ topping 12 → 13 dòng, sửa giá 15.000 → 20.000, xoá về 12 |
+| Phân quyền động: tick quyền → hiệu lực ngay | ✅ Thu ngân 8 → 9 quyền, vào được `#/reports` sau khi cấp; trước đó bị chặn |
+| Menu & trang theo vai trò | ✅ Thu ngân không thấy “Quản trị dữ liệu”, vào thẳng `#/admin` bị chặn |
+| Migration schema v4 → v5 (giữ dữ liệu) | ✅ nâng cấp tại chỗ, thêm bảng `roles`, không seed lại |
+| Push bảng `roles` lên cloud | ✅ cloud 6 vai trò (owner 24 · manager 22 · cashier 8 · barista 4 · accountant 9 · shipper 2 quyền) |
 
 Ảnh kiểm thử nằm trong `docs/screenshots/`.
 
