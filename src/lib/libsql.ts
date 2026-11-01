@@ -28,10 +28,10 @@ export interface RowResult {
 
 const MAX_STMTS_PER_REQUEST = 40
 
-/** libsql:// → https:// , ws:// → wss:// (trình duyệt không mở được ws trần) */
+/** libsql:// · turso:// → https:// , ws:// → wss:// (trình duyệt không mở được ws trần) */
 export function toHttps(url: string): string {
   const u = (url ?? '').trim().replace(/\/+$/, '')
-  if (/^libsql:\/\//i.test(u)) return u.replace(/^libsql:\/\//i, 'https://')
+  if (/^(libsql|turso):\/\//i.test(u)) return u.replace(/^(libsql|turso):\/\//i, 'https://')
   if (/^wss?:\/\//i.test(u)) return u.replace(/^ws:\/\//i, 'http://').replace(/^wss:\/\//i, 'https://')
   return u
 }

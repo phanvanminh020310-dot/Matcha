@@ -35,7 +35,7 @@ function loadKeys() {
 }
 
 const toHttps = (u) =>
-  (u || '').trim().replace(/\/+$/, '').replace(/^libsql:\/\//i, 'https://').replace(/^wss:\/\//i, 'https://').replace(/^ws:\/\//i, 'http://')
+  (u || '').trim().replace(/\/+$/, '').replace(/^(libsql|turso):\/\//i, 'https://').replace(/^wss:\/\//i, 'https://').replace(/^ws:\/\//i, 'http://')
 
 const enc = (v) => {
   if (v === null || v === undefined) return { type: 'null' }
