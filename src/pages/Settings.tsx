@@ -7,6 +7,7 @@ import { PageHeader, ResetDataButton } from '../components/layout/AppShell'
 import { Badge, Button, Card, CardHeader, Field, Input, Modal, Select, Switch, Tabs } from '../components/ui'
 import { dbSizeBytes, run } from '../lib/db'
 import { REALTIME_SQL } from '../lib/realtime'
+import { RLS_SQL } from '../lib/rls'
 import { buildSeedSQL, keyWarning, loadCloud, localCounts, pullAll, pushAll, saveCloud, testCloud, toPgDDL, type CloudConfig, type SyncProgress } from '../lib/cloud'
 import { downloadFile } from '../lib/format'
 import {ROLE_PERMISSIONS, type Role} from '../lib/rbac'
@@ -228,6 +229,9 @@ function CloudDatabase() {
           <Field label="Anon / service key" hint="Supabase → Settings → API → anon public key. Key chỉ lưu trong máy bạn.">
             <Input type="password" value={cfg.key} onChange={(e) => update({ key: e.target.value })} placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6..." />
           </Field>
+          <Field label="Mã đồng bộ (sync token)" hint="Bắt buộc khi cloud đã bật RLS (docs/sql/rls.sql). DB chỉ lưu SHA-256 của mã — mất mã thì cấp lại mã mới bằng SQL, xem hướng dẫn.">
+            <Input type="password" value={cfg.token ?? ''} onChange={(e) => update({ token: e.target.value })} placeholder="mk_…" />
+          </Field>
           {keyWarning(cfg.key) && (
             <p className="rounded-xl bg-amber-50 p-2 text-[11px] leading-relaxed text-amber-800 dark:bg-amber-900/20 dark:text-amber-200">⚠️ {keyWarning(cfg.key)}</p>
           )}
@@ -293,6 +297,7 @@ function CloudDatabase() {
               <li>Tạo project miễn phí tại supabase.com (hoặc neon.tech).</li>
               <li>Tải <b>schema.sql</b> bên dưới → mở SQL Editor → dán → Run.</li>
               <li>Dán Project URL + anon key vào ô bên trái → Kiểm tra kết nối.</li>
+              <li>Chạy <b>realtime.sql</b> (báo thay đổi giữa các máy) và <b>rls.sql</b> (chỉ thiết bị có mã đồng bộ mới được ghi) — hoặc bỏ qua nếu cloud đã cấu hình sẵn.</li>
               <li>Bấm <b>Đẩy dữ liệu lên</b> để đưa {totalRows.toLocaleString('vi-VN')} dòng hiện có lên cloud (hoặc bấm <b>Tải từ cloud</b> nếu đã có dữ liệu).</li>
             </ol>
             <div className="flex flex-wrap gap-2 pt-1">
@@ -313,6 +318,10 @@ function CloudDatabase() {
                 downloadFile('matcha-realtime.sql', REALTIME_SQL, 'text/plain;charset=utf-8')
                 toast({ title: 'Đã tải realtime.sql', description: 'Chạy 1 lần để bật realtime cho 11 bảng', tone: 'success' })
               }}>realtime.sql</Button>
+              <Button size="sm" variant="ghost" icon={<Download size={14} />} onClick={() => {
+                downloadFile('matcha-rls.sql', RLS_SQL, 'text/plain;charset=utf-8')
+                toast({ title: 'Đã tải rls.sql', description: 'Siết quyền ghi: chỉ thiết bị có mã đồng bộ mới ghi được', tone: 'success' })
+              }}>rls.sql</Button>
             </div>
           </div>
         </Card>

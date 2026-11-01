@@ -13,6 +13,8 @@ export interface CloudConfig {
   autoSync: boolean
   /** Bật lắng nghe thay đổi từ Postgres (Supabase Realtime) */
   realtime: boolean
+  /** Mã thiết bị (sync token) — bắt buộc khi cloud đã bật RLS. DB chỉ giữ SHA-256 của mã. */
+  token: string
   lastSync: string | null
   lastRows: number
 }
@@ -22,16 +24,16 @@ const KEY = 'matcha.cloud.v1'
 export function loadCloud(): CloudConfig {
   try {
     const raw = localStorage.getItem(KEY)
-    if (!raw) return { url: '', key: '', autoSync: false, realtime: true, lastSync: null, lastRows: 0 }
-    return { url: '', key: '', autoSync: false, realtime: true, lastSync: null, lastRows: 0, ...JSON.parse(raw) }
+    if (!raw) return { url: '', key: '', token: '', autoSync: false, realtime: true, lastSync: null, lastRows: 0 }
+    return { url: '', key: '', token: '', autoSync: false, realtime: true, lastSync: null, lastRows: 0, ...JSON.parse(raw) }
   } catch {
-    return { url: '', key: '', autoSync: false, realtime: true, lastSync: null, lastRows: 0 }
+    return { url: '', key: '', token: '', autoSync: false, realtime: true, lastSync: null, lastRows: 0 }
   }
 }
 
 export function saveCloud(cfg: CloudConfig) {
   // Cắt khoảng trắng/ký tự xuống dòng khi dán key — lỗi phổ biến nhất khi copy từ Supabase
-  const clean: CloudConfig = { ...cfg, url: cfg.url.trim().replace(/\/+$/, ''), key: cfg.key.trim() }
+  const clean: CloudConfig = { ...cfg, url: cfg.url.trim().replace(/\/+$/, ''), key: cfg.key.trim(), token: (cfg.token ?? '').trim() }
   localStorage.setItem(KEY, JSON.stringify(clean))
 }
 
@@ -136,6 +138,9 @@ export function buildSeedSQL(limitPerTable = 0): string {
 const headers = (cfg: CloudConfig, extra: Record<string, string> = {}) => {
   const key = cfg.key.trim()
   const h: Record<string, string> = { apikey: key, 'Content-Type': 'application/json', ...extra }
+  // Mã thiết bị: RLS trong Postgres đọc header này để cho phép ghi (xem docs/sql/rls.sql)
+  const token = (cfg.token ?? '').trim()
+  if (token) h['x-sync-token'] = token
   // Key legacy (JWT eyJ…) gửi thêm Authorization; key mới sb_publishable_… chỉ dùng header apikey
   // (gửi chuỗi không phải JWT vào Authorization sẽ bị PostgREST từ chối 401)
   if (key.startsWith('eyJ')) h.Authorization = `Bearer ${key}`
@@ -163,10 +168,42 @@ export async function testCloud(cfg: CloudConfig) {
     if (!probe.ok) return { ok: false, message: `Bảng branches lỗi HTTP ${probe.status}`, latency }
     const rows = await probe.json()
     const count = Array.isArray(rows) ? rows.length : 0
-    return { ok: true, message: count > 0 ? 'Kết nối tốt · bảng branches đã có dữ liệu' : 'Kết nối tốt · bảng branches đã tạo nhưng còn trống — hãy bấm “Đẩy dữ liệu lên”', latency }
+    const base = count > 0 ? 'Kết nối tốt · bảng branches đã có dữ liệu' : 'Kết nối tốt · bảng branches đã tạo nhưng còn trống — hãy bấm “Đẩy dữ liệu lên”'
+    // Kiểm tra quyền GHI (RLS): upsert 1 dòng vô hại vào app_meta
+    let write = ''
+    try {
+      const w = await fetch(`${normUrl(cfg.url)}/rest/v1/app_meta?on_conflict=key`, {
+        method: 'POST',
+        headers: headers(cfg, { Prefer: 'return=minimal,resolution=merge-duplicates' }),
+        body: JSON.stringify([{ key: 'last_write_check', value: new Date().toISOString() }]),
+        signal: AbortSignal.timeout(15000),
+      })
+      if (w.ok) {
+        write = ' · quyền ghi: OK'
+      } else if (w.status === 401 || w.status === 403) {
+        const body = await w.text()
+        const blocked = /row-level security|permission denied/i.test(body) || !(cfg.token ?? '').trim()
+        return {
+          ok: false,
+          latency,
+          message: blocked
+            ? 'Đọc được nhưng GHI bị chặn: cloud đã bật RLS. Dán đúng “Mã đồng bộ” ở ô bên dưới (hoặc tắt RLS bằng docs/sql/rls-off.sql nếu đang thử nghiệm).'
+            : `Không có quyền ghi (HTTP ${w.status}) — kiểm tra lại anon key`,
+        }
+      }
+    } catch { /* bỏ qua: chỉ là kiểm tra phụ */ }
+    return { ok: true, message: base + write, latency }
   } catch (e) {
     return { ok: false, message: `Không kết nối được: ${(e as Error).message}` }
   }
+}
+
+/** Lỗi ghi bị RLS chặn → chỉ dẫn cụ thể cho người dùng. */
+const writeError = (table: string, status: number, body: string) => {
+  if (status === 401 || status === 403 || /row-level security|permission denied/i.test(body)) {
+    return `Bị chặn ghi ở bảng ${table}: cloud đã bật RLS nhưng mã đồng bộ (x-sync-token) sai hoặc chưa nhập. Vào Cài đặt → Cơ sở dữ liệu → dán "Mã đồng bộ" rồi thử lại.`
+  }
+  return `Ghi ${table} thất bại: HTTP ${status} ${body.slice(0, 160)}`
 }
 
 export interface SyncProgress { table: string; index: number; total: number; rows: number; done?: boolean }
@@ -188,7 +225,7 @@ export async function pushAll(cfg: CloudConfig, onProgress?: (p: SyncProgress) =
       onProgress?.({ table: `xoá ${name}`, index: i + 1, total: steps, rows: 0 })
       const res = await fetch(`${base}/rest/v1/${name}?${pkOf(name)}=not.is.null`, { method: 'DELETE', headers: headers(cfg) })
       if (!res.ok && res.status !== 404) {
-        throw new Error(`Xoá ${name} thất bại: HTTP ${res.status} ${(await res.text()).slice(0, 140)}`)
+        throw new Error(writeError(name, res.status, await res.text()))
       }
     }
   }
@@ -209,7 +246,7 @@ export async function pushAll(cfg: CloudConfig, onProgress?: (p: SyncProgress) =
         headers: headers(cfg, { Prefer: 'return=minimal,resolution=merge-duplicates' }),
         body: JSON.stringify(slice),
       })
-      if (!res.ok) throw new Error(`Ghi ${t.name} thất bại: HTTP ${res.status} ${(await res.text()).slice(0, 160)}`)
+      if (!res.ok) throw new Error(writeError(t.name, res.status, await res.text()))
       total += slice.length
     }
   }
