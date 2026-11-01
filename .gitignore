@@ -8,3 +8,7 @@ dist/
 !.env.example
 npm-debug.log*
 build/
+
+# Khoá Turso — không bao giờ commit
+turso-keys.txt
+*.keys
