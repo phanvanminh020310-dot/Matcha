@@ -167,7 +167,7 @@ Bản build là **static site** (`base: './'`) nên deploy được ở bất k�
 
 | Nơi deploy | Cách làm |
 | --- | --- |
-| GitHub Pages | push repo → Settings → Pages → Source: *GitHub Actions* (workflow `.github/workflows/deploy.yml` có sẵn) hoặc branch `gh-pages` |
+| **GitHub Pages** (khuyến nghị) | Repo đã có workflow `.github/workflows/deploy.yml`. Chỉ cần vào **Settings → Pages → Source = "GitHub Actions"** (1 lần), sau đó mỗi lần push `main` sẽ tự build + deploy → `https://<user>.github.io/Matcha/` |
 | Vercel / Netlify | import repo, build command `npm run build`, output `dist` (không cần env) |
 | Cloudflare Pages | build `npm run build`, output `dist` |
 | Bất kỳ static host | upload nội dung `dist/` |
@@ -189,6 +189,12 @@ Giới hạn của gói free: băng thông/ưu lượng theo nhà cung cấp —
 Nếu bị chặn ở đâu (quyền GitHub, dịch vụ deploy…), dự án vẫn ưu tiên: **chạy được, dữ liệu nhất quán, không có chức năng giả** thay vì nhiều tính năng hình thức.
 
 ---
+
+## 7b. Link công khai
+
+- **GitHub Pages** (vĩnh viễn, sau khi bật ở Settings): `https://phanvanminh020310-dot.github.io/Matcha/`
+- **Bản build tĩnh** nằm trong thư mục `build/` của repo (tiện tải về mở trực tiếp hoặc deploy lên host khác).
+- Khi chạy local: `npm run serve` → `http://localhost:4173`.
 
 ## 8. Kiểm thử đã chạy
 

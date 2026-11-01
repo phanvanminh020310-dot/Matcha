@@ -59,15 +59,16 @@ export function todayVN() {
   return nowVN().slice(0, 10)
 }
 
+/** Cộng/trừ ngày trên chuỗi 'YYYY-MM-DD' (thuần lịch, không phụ thuộc múi giờ). */
 export function addDays(dateStr: string, days: number) {
-  const d = parseVN(dateStr)!
+  const d = new Date(`${dateStr.slice(0, 10)}T00:00:00Z`)
   d.setUTCDate(d.getUTCDate() + days)
   return d.toISOString().slice(0, 10)
 }
 
 export function daysBetween(a: string, b: string) {
-  const d1 = parseVN(a)!.getTime()
-  const d2 = parseVN(b)!.getTime()
+  const d1 = new Date(`${a.slice(0, 10)}T00:00:00Z`).getTime()
+  const d2 = new Date(`${b.slice(0, 10)}T00:00:00Z`).getTime()
   return Math.round((d2 - d1) / 86400000)
 }
 
