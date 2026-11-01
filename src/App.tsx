@@ -129,9 +129,10 @@ export default function App() {
         refreshRbac()
         setReady(true)
         // Nếu user đã cấu hình Postgres cloud và bật tự đồng bộ → kéo dữ liệu mới nhất về máy
-        const cloud = loadCloud()
         // Giải mã anon key + mã đồng bộ đã mã hoá trong máy (khoá AES nằm trong IndexedDB)
+        // PHẢI chạy TRƯỚC loadCloud(), nếu không key/token sẽ rỗng và app mất đồng bộ.
         await hydrateCloud()
+        const cloud = loadCloud()
 
         // LINK CHỈ XEM: kiểm tra quyền ghi 1 lần khi mở app → chặn ghi ở mọi màn hình
         try {

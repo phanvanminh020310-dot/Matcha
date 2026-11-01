@@ -49,6 +49,20 @@ export async function hydrateCloud(): Promise<boolean> {
     const sec = await openSecrets()
     if (sec) SECRETS = sec
   } catch { /* không giải mã được → người dùng nhập lại trong Cài đặt */ }
+  // Máy cũ còn lưu anon key + mã đồng bộ dạng CHỮ THƯỜNG trong localStorage → chuyển sang kho mã hoá rồi xoá bản rõ.
+  if (!SECRETS) {
+    try {
+      const raw = localStorage.getItem(KEY)
+      const plain = raw ? (JSON.parse(raw) as Partial<CloudConfig>) : null
+      if (plain?.key || plain?.token) {
+        SECRETS = { key: plain.key ?? '', token: plain.token ?? '' }
+        await sealSecrets(SECRETS)
+        const { key: _k, token: _t, ...rest } = plain as CloudConfig
+        void _k; void _t
+        localStorage.setItem(KEY, JSON.stringify(rest))
+      }
+    } catch { /* không chuyển được → coi như máy chưa cấu hình */ }
+  }
   HYDRATED = true
   return !!SECRETS
 }
