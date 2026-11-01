@@ -47,7 +47,7 @@ export function cloudSecretsLoaded() { return HYDRATED }
 export async function hydrateCloud(): Promise<boolean> {
   try {
     const sec = await openSecrets()
-    if (sec) SECRETS = sec
+    if (sec) SECRETS = { key: sec.key ?? '', token: sec.token ?? '' }
   } catch { /* không giải mã được → người dùng nhập lại trong Cài đặt */ }
   // Máy cũ còn lưu anon key + mã đồng bộ dạng CHỮ THƯỜNG trong localStorage → chuyển sang kho mã hoá rồi xoá bản rõ.
   if (!SECRETS) {

@@ -1,0 +1,135 @@
+/**
+ * Khối giao diện “Đồng bộ Turso” trong Cài đặt.
+ * Cho phép dán địa chỉ + 2 token, kiểm tra kết nối, đẩy/tải dữ liệu và xem mốc đồng bộ.
+ */
+import { useState } from 'react'
+import { CheckCircle2, Cloud, Database, Download, RefreshCw, ShieldCheck, Upload } from 'lucide-react'
+import { Badge, Button, Card, CardHeader, Field, Input, Switch } from './ui'
+import { formatDateTime } from '../lib/format'
+import {
+  loadTurso, saveTurso, tursoCanWrite, tursoDelta, tursoPullAll, tursoPushAll, tursoReady, tursoTest,
+  type SyncProgress, type TursoConfig,
+} from '../lib/turso'
+
+export function TursoPanel() {
+  const [cfg, setCfg] = useState<TursoConfig>(() => loadTurso())
+  const [busy, setBusy] = useState<null | 'test' | 'push' | 'pull' | 'delta'>(null)
+  const [result, setResult] = useState<{ ok: boolean; message: string; latency?: number } | null>(null)
+  const [progress, setProgress] = useState<SyncProgress | null>(null)
+
+  const update = (patch: Partial<TursoConfig>) => {
+    const next = { ...loadTurso(), ...cfg, ...patch }
+    setCfg(next)
+    saveTurso(next)
+  }
+
+  const run = async (kind: 'test' | 'push' | 'pull' | 'delta') => {
+    setBusy(kind)
+    setProgress(null)
+    try {
+      if (kind === 'test') {
+        setResult(await tursoTest(cfg))
+      } else if (kind === 'push') {
+        const res = await tursoPushAll(cfg, setProgress)
+        setCfg(loadTurso())
+        setResult({ ok: true, message: `Đã đẩy ${res.rows.toLocaleString('vi-VN')} dòng lên Turso` })
+      } else if (kind === 'pull') {
+        const res = await tursoPullAll(cfg, setProgress)
+        setCfg(loadTurso())
+        setResult({ ok: true, message: `Đã tải ${res.rows.toLocaleString('vi-VN')} dòng từ Turso về máy` })
+        window.dispatchEvent(new CustomEvent('matcha:db-refresh'))
+      } else {
+        const res = await tursoDelta(cfg, setProgress)
+        setCfg(loadTurso())
+        setResult({
+          ok: true,
+          message: res.full
+            ? `Máy chưa có mốc đồng bộ → đã tải toàn bộ ${res.applied.toLocaleString('vi-VN')} dòng`
+            : `${res.applied.toLocaleString('vi-VN')} thay đổi mới (đến seq ${res.lastSeq.toLocaleString('vi-VN')})`,
+        })
+        if (res.applied > 0) window.dispatchEvent(new CustomEvent('matcha:db-refresh'))
+      }
+    } catch (e) {
+      setResult({ ok: false, message: (e as Error).message })
+    } finally {
+      setBusy(null)
+      setProgress(null)
+    }
+  }
+
+  const ready = tursoReady(cfg)
+  const canWrite = tursoCanWrite(cfg)
+
+  return (
+    <Card>
+      <CardHeader
+        icon={<Database size={16} />}
+        title="Đồng bộ Turso (dữ liệu nhiều máy)"
+        subtitle="Turso giữ bản chuẩn; máy khác chỉ tải phần thay đổi nên rất nhẹ"
+        right={
+          <div className="flex items-center gap-2">
+            {ready && <Badge tone={canWrite ? 'green' : 'amber'} dot>{canWrite ? 'Máy được ghi' : 'Chỉ xem'}</Badge>}
+            <Switch checked={cfg.enabled} onChange={(v) => update({ enabled: v })} label="bật turso" />
+          </div>
+        }
+      />
+
+      <div className="space-y-3">
+        <Field label="Địa chỉ database" hint="Dạng libsql://matcha-….turso.io (lấy trong Turso → database → Connect)">
+          <Input value={cfg.url} placeholder="libsql://matcha-…turso.io" onChange={(e) => update({ url: e.target.value })} />
+        </Field>
+        <Field label="Token GHI (chỉ đặt trên máy của chủ chuỗi)" hint="Cho phép đẩy dữ liệu lên. Bỏ trống nếu máy này chỉ đọc.">
+          <Input type="password" value={cfg.tokenRw} placeholder="eyJ…" onChange={(e) => update({ tokenRw: e.target.value })} />
+        </Field>
+        <Field label="Token CHỈ ĐỌC" hint="Turso chặn mọi lệnh ghi bằng token này — dùng cho máy xem và link chia sẻ.">
+          <Input type="password" value={cfg.tokenRo} placeholder="eyJ…" onChange={(e) => update({ tokenRo: e.target.value })} />
+        </Field>
+
+        <div className="flex flex-wrap gap-2">
+          <Button variant="secondary" icon={<RefreshCw size={15} />} disabled={!ready || busy !== null} onClick={() => run('test')}>
+            {busy === 'test' ? 'Đang kiểm tra…' : 'Kiểm tra kết nối'}
+          </Button>
+          <Button variant="primary" icon={<Upload size={15} />} disabled={!ready || !canWrite || busy !== null} onClick={() => run('push')}>
+            {busy === 'push' ? 'Đang đẩy…' : 'Đẩy dữ liệu lên'}
+          </Button>
+          <Button icon={<Download size={15} />} disabled={!ready || busy !== null} onClick={() => run('pull')}>
+            {busy === 'pull' ? 'Đang tải…' : 'Tải toàn bộ về máy'}
+          </Button>
+          <Button variant="ghost" icon={<Cloud size={15} />} disabled={!ready || busy !== null} onClick={() => run('delta')}>
+            {busy === 'delta' ? 'Đang đồng bộ…' : 'Đồng bộ thay đổi'}
+          </Button>
+        </div>
+
+        {result && (
+          <div className={`rounded-xl p-2.5 text-[11.5px] ${result.ok ? 'bg-matcha-50 text-matcha-800 dark:bg-matcha-900/20 dark:text-matcha-200' : 'bg-rose-50 text-rose-700 dark:bg-rose-900/20'}`}>
+            {result.ok ? <CheckCircle2 className="mr-1 inline" size={13} /> : '⚠️'} {result.message}
+            {result.latency ? ` · ${result.latency} ms` : ''}
+          </div>
+        )}
+
+        {progress && (
+          <div className="rounded-xl bg-ink-50 p-2.5 dark:bg-ink-800">
+            <div className="flex justify-between text-[11px] text-ink-500">
+              <span>{progress.done ? 'Hoàn tất' : progress.table}</span>
+              <span>{progress.index}/{progress.total} · {progress.rows.toLocaleString('vi-VN')} dòng</span>
+            </div>
+            <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-ink-200 dark:bg-ink-700">
+              <div className="h-full rounded-full bg-matcha-600 transition-all" style={{ width: `${(progress.index / progress.total) * 100}%` }} />
+            </div>
+          </div>
+        )}
+
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-ink-400">
+          <span className="inline-flex items-center gap-1"><ShieldCheck size={12} /> Mốc thay đổi: seq {cfg.lastSeq.toLocaleString('vi-VN')}</span>
+          {cfg.lastSync && <span>Đồng bộ cuối: {formatDateTime(cfg.lastSync)}</span>}
+          {cfg.lastRows > 0 && <span>{cfg.lastRows.toLocaleString('vi-VN')} dòng</span>}
+        </div>
+
+        <p className="rounded-xl bg-ink-50 p-2.5 text-[11px] leading-relaxed text-ink-500 dark:bg-ink-800 dark:text-ink-400">
+          Máy có token GHI: đẩy đơn mới lên Turso. Máy chỉ có token CHỈ ĐỌC: Turso chặn mọi lệnh ghi ở tầng máy chủ — dù mở
+          DevTools cũng không sửa được dữ liệu. Bảng quản trị (tài khoản admin, phiên, mã đồng bộ) không bao giờ được tải về máy.
+        </p>
+      </div>
+    </Card>
+  )
+}

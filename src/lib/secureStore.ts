@@ -78,34 +78,36 @@ const b64 = (buf: ArrayBuffer) => btoa(String.fromCharCode(...new Uint8Array(buf
 const unb64 = (s: string) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0))
 
 /** Mã hoá bí mật và ghi vào localStorage (chỉ ciphertext). */
-export async function sealSecrets(secrets: { key: string; token: string }): Promise<boolean> {
+export type SecretBag = Record<string, string>
+
+export async function sealSecrets(secrets: SecretBag, name = ENC_KEY): Promise<boolean> {
   const k = await deviceKey()
   try {
     if (!k) {
-      localStorage.setItem(ENC_KEY, JSON.stringify({ plain: true, data: secrets, at: Date.now() }))
+      localStorage.setItem(name, JSON.stringify({ plain: true, data: secrets, at: Date.now() }))
       return false
     }
     const iv = crypto.getRandomValues(new Uint8Array(12))
     const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, k, new TextEncoder().encode(JSON.stringify(secrets)))
-    localStorage.setItem(ENC_KEY, JSON.stringify({ iv: b64(iv.buffer), ct: b64(ct), at: Date.now() } as Envelope))
+    localStorage.setItem(name, JSON.stringify({ iv: b64(iv.buffer), ct: b64(ct), at: Date.now() } as Envelope))
     return true
   } catch {
-    localStorage.setItem(ENC_KEY, JSON.stringify({ plain: true, data: secrets, at: Date.now() }))
+    localStorage.setItem(name, JSON.stringify({ plain: true, data: secrets, at: Date.now() }))
     return false
   }
 }
 
 /** Đọc & giải mã bí mật. Trả null nếu chưa có / không giải mã được (khác máy). */
-export async function openSecrets(): Promise<{ key: string; token: string } | null> {
-  const raw = localStorage.getItem(ENC_KEY)
+export async function openSecrets(name = ENC_KEY): Promise<SecretBag | null> {
+  const raw = localStorage.getItem(name)
   if (!raw) return null
   try {
-    const env = JSON.parse(raw) as Envelope & { plain?: boolean; data?: { key: string; token: string } }
+    const env = JSON.parse(raw) as Envelope & { plain?: boolean; data?: SecretBag }
     if (env.plain && env.data) return env.data
     const k = await deviceKey()
     if (!k) return null
     const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(env.iv) }, k, unb64(env.ct))
-    return JSON.parse(new TextDecoder().decode(plain)) as { key: string; token: string }
+    return JSON.parse(new TextDecoder().decode(plain)) as SecretBag
   } catch {
     return null
   }

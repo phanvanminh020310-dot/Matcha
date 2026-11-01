@@ -82,11 +82,21 @@ export class Libsql {
       const text = (await res.text()).slice(0, 200)
       throw new Error(`Turso HTTP ${res.status}: ${text}`)
     }
-    const json = (await res.json()) as { results?: { type: string; response?: { result?: { cols: { name: string }[]; rows: RawCell[][]; affected_row_count?: number } ; error?: { message?: string } } }[] }
+    const json = (await res.json()) as {
+      results?: {
+        type: string
+        error?: { message?: string }
+        response?: { result?: { cols: { name: string }[]; rows: RawCell[][]; affected_row_count?: number }; error?: { message?: string } }
+      }[]
+    }
     const out: RowResult[] = []
     for (const r of json.results ?? []) {
       if (r.type !== 'ok') {
-        throw new Error(r.response?.error?.message ?? 'Turso trả về lỗi')
+        const msg = r.error?.message ?? r.response?.error?.message ?? 'Turso trả về lỗi'
+        // Thông báo dễ hiểu cho người dùng cuối khi máy chỉ có token đọc
+        throw new Error(/write operations are forbidden|read-only|readonly/i.test(msg)
+          ? 'Máy này chỉ có quyền ĐỌC (token read-only) — Turso chặn thao tác ghi. Dùng link “Làm việc” để sửa dữ liệu.'
+          : msg)
       }
       const result = r.response?.result
       if (!result) { out.push({ columns: [], rows: [], affected: 0 }); continue }

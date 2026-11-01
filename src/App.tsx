@@ -6,6 +6,7 @@ import { CloudSyncWatcher } from './components/CloudSyncWatcher'
 import { useApp } from './store/app'
 import { initDatabase, type InitProgress } from './lib/db'
 import { checkWritePermission, clearCloudError, hydrateCloud, loadCloud, pullAll, saveCloud, setCloudError } from './lib/cloud'
+import { hydrateTurso, loadTurso, tursoCanWrite, tursoDelta, tursoReady } from './lib/turso'
 import { setReadOnlyMode } from './lib/db'
 import { ensureRoles } from './lib/permissions'
 import { refreshRbac } from './lib/rbac'
@@ -131,11 +132,19 @@ export default function App() {
         // Giải mã anon key + mã đồng bộ đã mã hoá trong máy (khoá AES nằm trong IndexedDB)
         // PHẢI chạy TRƯỚC loadCloud(), nếu không key/token sẽ rỗng và app mất đồng bộ.
         await hydrateCloud()
+        await hydrateTurso()
         const cloud = loadCloud()
+        const turso = loadTurso()
+        const tursoOn = turso.enabled && tursoReady(turso)
+
+        // Turso: máy chỉ có token đọc → chặn ghi ngay (Turso cũng chặn ở tầng máy chủ)
+        if (tursoOn) {
+          setReadOnlyMode(!tursoCanWrite(turso))
+        }
 
         // LINK CHỈ XEM: kiểm tra quyền ghi 1 lần khi mở app → chặn ghi ở mọi màn hình
         try {
-          const canWrite = await checkWritePermission(cloud)
+          const canWrite = tursoOn ? (tursoCanWrite(turso) ? true : false) : await checkWritePermission(cloud)
           setReadOnlyMode(canWrite === false)
           if (canWrite === false) {
             console.info('[matcha][cloud] chế độ CHỈ XEM — đã chặn thao tác ghi')
@@ -150,8 +159,34 @@ export default function App() {
         // Vì vậy KHÔNG tải lại mỗi lần mở app — chỉ tải khi dữ liệu đã cũ hơn 60 phút.
         // Dữ liệu thay đổi giữa các máy đã có realtime lo; cần gấp thì bấm "Tải dữ liệu mới nhất".
         const AUTO_PULL_EVERY_MS = 60 * 60 * 1000
+
+        // NẾU ĐÃ BẬT TURSO: chỉ hỏi phần thay đổi (vài KB) thay vì tải lại toàn bộ 11 MB.
+        if (tursoOn) {
+          const freshT = !!turso.lastSync && Date.now() - new Date(turso.lastSync).getTime() < AUTO_PULL_EVERY_MS
+          if (!freshT) {
+            try {
+              if (mounted) setProgress((prev) => [...prev, { step: 'Đang đồng bộ Turso', detail: 'chỉ tải phần thay đổi' }])
+              const r = await tursoDelta(turso, (p) => {
+                if (mounted && !p.done) setProgress((prev) => [...prev.slice(0, -1), { step: 'Đang đồng bộ Turso', detail: `${p.rows} dòng` }])
+              })
+              console.info('[matcha][turso] delta xong', r.applied, 'thay đổi, seq', r.lastSeq)
+              if (r.applied > 0) {
+                ensureRoles()
+                refreshRbac()
+                window.dispatchEvent(new CustomEvent('matcha:db-refresh'))
+              }
+              clearCloudError()
+            } catch (e) {
+              const msg = (e as Error).message
+              console.warn('[matcha][turso] đồng bộ lỗi:', msg)
+              setCloudError(msg)
+              window.dispatchEvent(new CustomEvent('matcha:cloud-error', { detail: msg }))
+            }
+          }
+        }
+
         const fresh = !!cloud.lastSync && Date.now() - new Date(cloud.lastSync).getTime() < AUTO_PULL_EVERY_MS
-        if (cloud.url && cloud.key && (cloud.autoSync || firstRun) && !fresh) {
+        if (!tursoOn && cloud.url && cloud.key && (cloud.autoSync || firstRun) && !fresh) {
           console.info('[matcha][cloud] auto-pull bắt đầu', cloud.url)
           try {
             if (mounted) setProgress((prev) => [...prev, { step: 'Đang tải dữ liệu từ máy chủ', detail: 'Postgres · nhiều máy dùng chung' }])

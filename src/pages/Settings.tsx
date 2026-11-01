@@ -5,6 +5,7 @@ import { useSql } from '../hooks/useDb'
 import { useApp } from '../store/app'
 import { PageHeader, ResetDataButton } from '../components/layout/AppShell'
 import { AdminGate, LockedNotice } from '../components/AdminGate'
+import { TursoPanel } from '../components/TursoPanel'
 import { adminChangePassword, adminLogout, adminUnlocked, adminUsername } from '../lib/adminAuth'
 import { Badge, Button, Card, CardHeader, Field, Input, Modal, Select, Switch, Tabs, Textarea } from '../components/ui'
 import { dbSizeBytes, run } from '../lib/db'
@@ -526,6 +527,8 @@ function CloudDatabase() {
           {cfg.lastSync && <p className="text-[11px] text-ink-400">Lần đồng bộ cuối: {vnTime(cfg.lastSync)} · {cfg.lastRows.toLocaleString('vi-VN')} dòng</p>}
         </div>
       </Card>
+
+      <TursoPanel />
 
       {lostOpen && newToken && (
         <Modal open onClose={() => setLostOpen(false)} title="Cấp lại mã đồng bộ" footer={

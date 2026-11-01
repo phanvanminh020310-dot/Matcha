@@ -5,6 +5,9 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   base: './',
+  // Cho phép xem thử qua tên miền proxy của môi trường phát triển (không ảnh hưởng bản GitHub Pages)
+  preview: { host: true, allowedHosts: true },
+  server: { host: true, allowedHosts: true },
   build: {
     target: 'es2020',
     chunkSizeWarningLimit: 1600,
