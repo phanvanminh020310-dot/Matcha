@@ -93,6 +93,8 @@ export function FleetMap3D({
   const [follow, setFollow] = useState(true)
   const [speedMul, setSpeedMul] = useState(1)
   const [zoomRatio, setZoomRatio] = useState(1)
+  const animUntil = useRef(0)      // đang chạy animation camera → tạm ngừng "bám xe"
+  const lastFollow = useRef(0)
 
   const selected = shipments.find((s) => s.id === selectedId) ?? shipments[0]
 
@@ -112,7 +114,7 @@ export function FleetMap3D({
       container: holder.current,
       style: mapStyle3D(true),
       center: [origin.lng, origin.lat],
-      zoom: 14.6,
+      zoom: 15.4,
       pitch: 55,
       bearing: -22,
       maxPitch: 78,
@@ -234,7 +236,10 @@ export function FleetMap3D({
           ;(m.getSource('traveled') as GeoJSONSource | undefined)?.setData({
             type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: traveled },
           } as never)
-          if (follow) m.easeTo({ center: [pos.lng, pos.lat], duration: 380, essential: true })
+          if (follow && now > animUntil.current && now - lastFollow.current > 320) {
+            lastFollow.current = now
+            m.jumpTo({ center: [pos.lng, pos.lat] })
+          }
         }
         pulseFeatures.push({
           type: 'Feature', properties: { r: 6 + 26 * (p % 1), o: 0.35 * (1 - (p % 1)), color: s.color },
@@ -284,6 +289,7 @@ export function FleetMap3D({
     const p = progress.current[selected.id] ?? 0
     if (!selected.route) { map.current.easeTo({ center: [selected.lng, selected.lat], duration: 700 }); return }
     const pos = pointAlong(selected.route.geometry, p)
+    animUntil.current = performance.now() + 900
     map.current.easeTo({ center: [pos.lng, pos.lat], duration: 700, ...(pitch3d ? { pitch: 55 } : { pitch: 0 }), essential: true })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected?.id, ready])
@@ -296,10 +302,12 @@ export function FleetMap3D({
     if (!m || !s?.route) return
     const lngs = s.route.geometry.map(([, lng]) => lng)
     const lats = s.route.geometry.map(([lat]) => lat)
+    animUntil.current = performance.now() + 1800
     m.fitBounds([[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]], {
-      padding: { top: 110, bottom: 120, left: 120, right: 260 }, pitch: 58, duration: 1400,
+      padding: { top: 110, bottom: 130, left: 130, right: 270 }, pitch: 58, duration: 1600,
     })
     fitted.current = true
+    console.info('[matcha][map3d] fit tuyến', s.code, lngs.length, 'điểm, zoom', m.getZoom().toFixed(2))
   }, [ready, shipments])
 
   const zoomBy = (d: number) => {
@@ -345,7 +353,7 @@ export function FleetMap3D({
 
       {/* HUD trên */}
       <div className="pointer-events-none absolute left-3 top-3 flex flex-col gap-2">
-        <div className="pointer-events-auto flex items-center gap-2 rounded-xl border border-white/10 bg-[#0a1220]/85 px-2.5 py-1.5 backdrop-blur">
+        <div className="pointer-events-auto flex items-center gap-2 rounded-xl border border-white/10 bg-[#0a1220]/92 px-2.5 py-1.5 backdrop-blur">
           <span className="flex items-center gap-1.5 text-[11px] font-semibold text-emerald-300">
             <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-400" /> LIVE 3D
           </span>
@@ -354,7 +362,7 @@ export function FleetMap3D({
           {fallback && <span className="ml-1 rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] text-amber-300">nền 2D dự phòng</span>}
         </div>
         {selected && (
-          <div className="pointer-events-auto w-[260px] rounded-xl border border-white/10 bg-[#0a1220]/88 p-2.5 backdrop-blur">
+          <div className="pointer-events-auto w-[260px] rounded-xl border border-white/10 bg-[#0a1220]/95 p-2.5 backdrop-blur">
             <div className="flex items-center justify-between">
               <span className="font-mono text-[10.5px] text-slate-400">{selected.code}</span>
               <span className="rounded-full px-1.5 py-0.5 text-[10px] font-semibold" style={{ background: `${selected.color}22`, color: selected.color }}>{selected.statusLabel}</span>
@@ -393,14 +401,14 @@ export function FleetMap3D({
           { icon: <Locate size={15} />, label: 'Xem toàn tuyến', onClick: zoomToRoute },
         ].map((b) => (
           <button key={b.label} title={b.label} onClick={b.onClick}
-            className="grid h-8 w-8 place-items-center rounded-lg border border-white/10 bg-[#0a1220]/85 text-slate-200 backdrop-blur transition hover:bg-[#12253c]">
+            className="grid h-8 w-8 place-items-center rounded-lg border border-white/10 bg-[#0a1220]/92 text-slate-200 backdrop-blur transition hover:bg-[#12253c]">
             {b.icon}
           </button>
         ))}
       </div>
 
       {/* thanh dưới */}
-      <div className="absolute inset-x-3 bottom-3 flex flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-[#0a1220]/88 px-2.5 py-2 backdrop-blur">
+      <div className="absolute inset-x-3 bottom-3 flex flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-[#0a1220]/95 px-2.5 py-2 backdrop-blur">
         <button onClick={() => setPlaying((p) => !p)}
           className="flex items-center gap-1.5 rounded-lg bg-emerald-500/90 px-2.5 py-1.5 text-[11.5px] font-semibold text-white transition hover:bg-emerald-400">
           {playing ? <Pause size={13} /> : <Play size={13} />} {playing ? 'Tạm dừng' : 'Chạy tiếp'}
