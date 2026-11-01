@@ -38,7 +38,7 @@ export function keyWarning(key: string): string | null {
   const k = key.trim()
   if (!k) return null
   if (k.startsWith('sb_secret_') || k.includes('service_role')) return 'Đây là SECRET / service_role key — có toàn quyền ghi đè dữ liệu. Chỉ dùng để thử, không chia sẻ.'
-  if (k.startsWith('sb_publishable_')) return 'Key publishable mới của Supabase: nếu bước Kiểm tra báo 401, hãy dùng key legacy "anon" (chuỗi JWT bắt đầu bằng eyJ…).'
+  if (k.startsWith('sb_publishable_')) return 'Key publishable (mới) — app gửi qua header apikey, dùng được. Nếu Kiểm tra báo 401, đổi sang key legacy "anon" (chuỗi eyJ…) trong tab Legacy API keys.'
   if (!k.startsWith('eyJ') && !k.startsWith('sb_')) return 'Key không giống anon key của Supabase (thường bắt đầu bằng eyJ… hoặc sb_publishable_…).'
   return null
 }
@@ -104,12 +104,14 @@ export function buildSeedSQL(limitPerTable = 0): string {
 
 /* ------------------------------ REST helpers ------------------------------ */
 
-const headers = (cfg: CloudConfig, extra: Record<string, string> = {}) => ({
-  apikey: cfg.key,
-  Authorization: `Bearer ${cfg.key}`,
-  'Content-Type': 'application/json',
-  ...extra,
-})
+const headers = (cfg: CloudConfig, extra: Record<string, string> = {}) => {
+  const key = cfg.key.trim()
+  const h: Record<string, string> = { apikey: key, 'Content-Type': 'application/json', ...extra }
+  // Key legacy (JWT eyJ…) gửi thêm Authorization; key mới sb_publishable_… chỉ dùng header apikey
+  // (gửi chuỗi không phải JWT vào Authorization sẽ bị PostgREST từ chối 401)
+  if (key.startsWith('eyJ')) h.Authorization = `Bearer ${key}`
+  return h
+}
 
 export async function testCloud(cfg: CloudConfig) {
   const started = performance.now()

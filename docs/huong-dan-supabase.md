@@ -63,7 +63,7 @@ Trong project vừa tạo:
    https://abcdefghijklmnop.supabase.co
    ```
 3. Ở khối **Project API keys**, tìm dòng **`anon` / `public`** (chuỗi rất dài bắt đầu bằng `eyJhbGciOiJIUzI1NiIs…`) → bấm **Copy**.
-   - Nếu giao diện mới hiện **API Keys → Publishable key** (`sb_publishable_…`): dùng cũng được, nhưng nếu app báo *401* thì quay lại tab **Legacy API keys** để lấy key `anon` dạng `eyJ…`.
+   - Giao diện mới có tab **Publishable and secret API keys**: key `sb_publishable_…` dùng được (app gửi qua header `apikey`). Tab **Legacy anon, service_role API keys** → dòng `anon` `public` (`eyJ…`) là phương án tương thích cao nhất nếu gặp 401.
    - **Tuyệt đối không dùng** `service_role` / `secret` key cho app chạy trên trình duyệt (nó bỏ qua mọi phân quyền).
 
 > 2 giá trị này là thứ duy nhất app cần. Chúng chỉ được lưu trong `localStorage` của máy bạn, không gửi đi đâu khác.
