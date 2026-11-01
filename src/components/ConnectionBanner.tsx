@@ -9,7 +9,7 @@
 import { useMemo, useState } from 'react'
 import { CloudOff, Link2, Loader2, X } from 'lucide-react'
 import { loadCloud } from '../lib/cloud'
-import { isTursoUrl, loadTurso, tursoReady } from '../lib/turso'
+import { isTursoUrl, loadTurso, saveTurso, tursoReady } from '../lib/turso'
 import { decodeShare } from '../lib/share'
 
 /** Mã chia sẻ nằm sau "#/join?c=…" — nhận cả link đầy đủ lẫn mã trần. */
@@ -58,29 +58,33 @@ export function ConnectionBanner() {
 
   return (
     <>
-      <button
-        onClick={() => setOpen(true)}
-        className={`flex w-full flex-wrap items-center gap-2 border-b px-3 py-1.5 text-left text-[11.5px] sm:px-5 ${
-          state.off
-            ? 'border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-900/25 dark:text-amber-100'
-            : 'border-rose-200 bg-rose-50 text-rose-900 hover:bg-rose-100 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-100'
-        }`}
-      >
-        <CloudOff size={13} className="shrink-0" />
-        {state.off ? (
-          <>
-            <span className="font-semibold">Đồng bộ đang TẮT trên máy này</span>
-            <span className="hidden sm:inline">— đã có cấu hình nhưng công tắc Turso đang tắt. Bấm để xem.</span>
-            <span className="sm:hidden">— xem →</span>
-          </>
-        ) : (
-          <>
-            <span className="font-semibold">Máy này CHƯA nối cơ sở dữ liệu chung</span>
-            <span className="hidden sm:inline">— dữ liệu chỉ nằm trên máy này, máy khác không thấy. Bấm để nối.</span>
-            <span className="sm:hidden">— nối ngay →</span>
-          </>
-        )}
-      </button>
+      {state.off ? (
+        <div className="flex w-full flex-wrap items-center gap-2 border-b border-amber-300 bg-amber-50 px-3 py-1.5 text-[11.5px] text-amber-900 dark:border-amber-800 dark:bg-amber-900/25 dark:text-amber-100 sm:px-5">
+          <CloudOff size={13} className="shrink-0" />
+          <span className="font-semibold">Đồng bộ đang TẮT</span>
+          <span className="hidden sm:inline">— máy đã có cấu hình Turso nhưng công tắc đang tắt: không nhận, không gửi thay đổi.</span>
+          <button
+            onClick={() => {
+              const t = loadTurso()
+              saveTurso({ ...t, enabled: true })
+              location.reload()
+            }}
+            className="rounded-lg bg-amber-800 px-2 py-1 text-[11px] font-semibold text-white hover:bg-amber-900"
+          >
+            Bật đồng bộ ngay
+          </button>
+        </div>
+      ) : (
+        <button
+          onClick={() => setOpen(true)}
+          className="flex w-full flex-wrap items-center gap-2 border-b border-rose-200 bg-rose-50 px-3 py-1.5 text-left text-[11.5px] text-rose-900 hover:bg-rose-100 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-100 sm:px-5"
+        >
+          <CloudOff size={13} className="shrink-0" />
+          <span className="font-semibold">Máy này CHƯA nối cơ sở dữ liệu chung</span>
+          <span className="hidden sm:inline">— dữ liệu chỉ nằm trên máy này, máy khác không thấy. Bấm để nối.</span>
+          <span className="sm:hidden">— nối ngay →</span>
+        </button>
+      )}
 
       {open && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink-950/50 p-4" onClick={() => setOpen(false)}>

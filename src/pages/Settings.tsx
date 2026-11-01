@@ -5,6 +5,7 @@ import { useSql } from '../hooks/useDb'
 import { useApp } from '../store/app'
 import { PageHeader, ResetDataButton } from '../components/layout/AppShell'
 import { TursoPanel } from '../components/TursoPanel'
+import { loadTurso, tursoReady } from '../lib/turso'
 import { Badge, Button, Card, CardHeader, Field, Input, Modal, Select, Switch, Tabs, Textarea } from '../components/ui'
 import { dbSizeBytes, one, run } from '../lib/db'
 import { hashPassword, passwordProblem, verifyPassword } from '../lib/passwords'
@@ -387,7 +388,8 @@ function CloudDatabase() {
 
   return (
     <div className="space-y-3">
-      {adminMode && (
+      {/* Thẻ này chỉ dành cho Postgres (bản cũ). Khi chuỗi đã dùng Turso thì ẩn đi để khỏi báo lỗi gây hoang mang. */}
+      {adminMode && !tursoReady(loadTurso()) && (
         <Card>
           <CardHeader title="Quyền ghi của máy này" subtitle="Máy chủ Postgres trả lời trực tiếp — không phải suy đoán"
             icon={<Shield size={16} />} />

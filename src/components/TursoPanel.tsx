@@ -19,6 +19,13 @@ export function TursoPanel() {
 
   const update = (patch: Partial<TursoConfig>) => {
     const next = { ...loadTurso(), ...cfg, ...patch }
+    // Dán địa chỉ / token vào là TỰ BẬT đồng bộ (người dùng không phải nhớ bấm công tắc).
+    // Riêng thao tác bấm công tắc thì tôn trọng đúng ý người dùng.
+    const touchingConfig = 'url' in patch || 'tokenRw' in patch || 'tokenRo' in patch || 'tokenOrder' in patch
+    if (touchingConfig && !('enabled' in patch)) {
+      const hasToken = !!(next.tokenRw || next.tokenRo || next.tokenOrder)
+      if (next.url.trim() && hasToken) next.enabled = true
+    }
     setCfg(next)
     saveTurso(next)
   }
@@ -71,7 +78,18 @@ export function TursoPanel() {
         right={
           <div className="flex items-center gap-2">
             {ready && <Badge tone={mode === 'full' ? 'green' : mode === 'order' ? 'blue' : 'amber'} dot>{modeLabel}</Badge>}
-            <Switch checked={cfg.enabled} onChange={(v) => update({ enabled: v })} label="bật turso" />
+            <Switch
+              checked={cfg.enabled}
+              label="bật turso"
+              onChange={(v) => {
+                update({ enabled: v })
+                // Bật lên là đồng bộ chạy ngay (không phải mở lại app)
+                if (v) {
+                  setResult({ ok: true, message: 'Đã bật đồng bộ — đang hỏi Turso phần thay đổi mới…' })
+                  setTimeout(() => { void run('delta') }, 60)
+                }
+              }}
+            />
           </div>
         }
       />
