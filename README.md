@@ -40,6 +40,10 @@ Bấm là dùng — không đăng nhập, không cài đặt. Màn hình đăng 
 | --- | --- |
 | ![Cloud](docs/screenshots/34-csdl-postgres.png) | ![A5](docs/screenshots/33-studio-phieu-giao-hang.png) |
 
+| Realtime: máy khác sửa dữ liệu → app báo ngay | Siết quyền ghi bằng mã đồng bộ (RLS) |
+| --- | --- |
+| ![Realtime](docs/screenshots/45-realtime-bao-thay-doi.png) | ![RLS](docs/screenshots/43-rls-kiem-tra-quyen-ghi.png) |
+
 Các ảnh khác trong [`docs/screenshots`](docs/screenshots): đăng nhập, thanh toán, hoá đơn, đơn hàng, thực đơn, công thức, kho, mua hàng, khách hàng, khuyến mãi, nhân sự, tài chính, báo cáo, cài đặt, SQL Console, dark mode, tablet.
 
 ---
@@ -129,6 +133,8 @@ Chi nhánh chuyển được ở góc trên phải: **Q1 · TP.HCM**, **Q3 · TP
 - File mẫu: `docs/sql/schema.postgres.sql` (đã kiểm tra cú pháp bằng parser PostgreSQL).
 - **Hướng dẫn bật Supabase từng bước (7 bước, kèm xử lý sự cố): [`docs/huong-dan-supabase.md`](docs/huong-dan-supabase.md)**
 - **Trạng thái thực tế**: một project Supabase (region Singapore, PostgreSQL 17) đã được tạo và nạp sẵn **60.854 dòng / 33 bảng**, kiểm tra 47 khoá ngoại không có dòng mồ côi. Để dùng, chỉ cần dán `Project URL` + `anon key` vào *Cài đặt → Cơ sở dữ liệu* rồi bấm **Tải từ cloud**.
+- **Realtime 2 chiều**: bật *Theo dõi thay đổi realtime* → app nối WebSocket tới Supabase Realtime (tự viết client Phoenix, không thêm thư viện) trên **11 bảng** (`orders`, `order_items`, `payments`, `order_events`, `deliveries`, `delivery_events`, `inventory_stock`, `inventory_txns`, `customers`, `shifts`, `print_jobs`). Máy khác ghi dữ liệu → hiện banner *“Có thay đổi mới từ cloud”* kèm nút **Đồng bộ ngay**; badge hiển thị trạng thái `realtime`. Bật bằng cách chạy **`docs/sql/realtime.sql`** (nút tải trong Cài đặt).
+- **Bảo mật ghi (RLS + mã đồng bộ)**: anon key nằm trong bundle nên **không thể** là thứ bảo vệ dữ liệu. Chạy **`docs/sql/rls.sql`** → mọi lệnh INSERT/UPDATE/DELETE yêu cầu header `x-sync-token` khớp SHA-256 trong bảng `sync_tokens` (kiểm tra bằng hàm `sync_ok()`, chạy `security definer`). Mã cấp theo thiết bị, có thể giới hạn theo `branch_id` (mã của Q1 không ghi được dữ liệu Q3). 11 bảng realtime vẫn mở quyền **đọc** (Supabase Realtime cần quyền SELECT để bắn sự kiện); các bảng còn lại (`users`, kho, tài chính…) yêu cầu mã ngay cả khi đọc. Có `docs/sql/rls-off.sql` để quay lại trạng thái mở khi thử nghiệm.
 - **Cơ chế đồng bộ**: *Đẩy dữ liệu lên* = UPSERT theo khoá chính (an toàn, không mất dữ liệu nếu đứt mạng); *Xoá & đẩy lại* = xoá sạch cloud rồi nạp lại (dùng khi cloud bị lệch); *Tải từ cloud* = kéo toàn bộ, phân trang 500 dòng/lần theo đúng khoá chính (kể cả bảng khoá ghép như `product_toppings`).
 
 ### Data Explorer (dành cho dân kỹ thuật)
@@ -237,7 +243,8 @@ Giới hạn của gói free: băng thông/ưu lượng theo nhà cung cấp —
 ## 7. Ghi chú kỹ thuật & giới hạn
 
 - **Lưu trữ**: mặc định SQLite WASM + IndexedDB (riêng từng máy). Muốn dùng chung nhiều máy → cấu hình **Postgres (Supabase/Neon)** ở *Cài đặt → Cơ sở dữ liệu*; app đẩy/kéo toàn bộ 33 bảng qua REST. Chưa cấu hình thì vẫn chạy đầy đủ, offline.
-- **Đồng bộ đa tab** trong cùng máy qua `BroadcastChannel`.
+- **Đồng bộ đa tab** trong cùng máy qua `BroadcastChannel`; **đồng bộ đa máy** qua Postgres + Supabase Realtime (banner *Có thay đổi mới từ cloud*).
+- **Bảo mật cloud**: quyền ghi do RLS quyết định, dựa trên *mã đồng bộ* (SHA-256 lưu ở bảng `sync_tokens`, mã gốc chỉ nằm trên máy người dùng). Lộ anon key cũng không xoá/sửa được dữ liệu. Mức tiếp theo (chặn cả quyền đọc + phân quyền theo người) là **Supabase Auth + `auth.uid()`**, đã ghi sẵn lộ trình trong `docs/huong-dan-supabase.md`.
 - **VietQR**: payload đúng chuẩn EMVCo/NAPAS 247, **quét được thật** bằng app ngân hàng; phần *xác nhận tiền về* là thao tác của thu ngân/kế toán trên màn hình đối soát (webhook ngân hàng cần hợp đồng với cổng thanh toán — nằm ngoài phạm vi bản này). MoMo/ZaloPay: tạo yêu cầu + callback mô phỏng.
 - **In**: dùng hộp thoại in của hệ điều hành (máy in nhiệt K80/K57, máy in laser A5/A4, hoặc *Save as PDF*). Trình duyệt không cho web tự gửi lệnh in không qua hộp thoại vì lý do bảo mật.
 - **Bản đồ/định tuyến** dùng dịch vụ công cộng miễn phí không cần key (OSM/Nominatim/OSRM) — có giới hạn rate, phù hợp demo & vận hành nhỏ; nếu cần SLA thì thay bằng Mapbox/Google (chỉ đổi 1 file `src/lib/geo.ts`).
@@ -279,6 +286,13 @@ Nếu bị chặn ở đâu (quyền GitHub, dịch vụ deploy…), dự án v�
 | POS tạo đơn giao → **tự sinh vận đơn** trong bảng điều phối | ✅ cột *Chờ điều phối* 1 → 2 |
 | Studio in ấn: 6 mẫu, xem trước có QR + barcode SVG | ✅ QR 1 + barcode 1 trên preview K80 |
 | Xuất `schema.sql` / `seed.sql` cho Postgres | ✅ 33 bảng + 33 RLS, 6,0 MB INSERT (60.854 dòng), cú pháp hợp lệ |
+| Cloud thật: pull 60.854 dòng về máy (production, Pages) | ✅ `auto-pull xong 60854 dòng`, 0 lỗi console |
+| Cloud thật: đẩy UPSERT không làm mất dữ liệu | ✅ khớp 100% sau khi đẩy (orders 4.101 · order_items 6.449 · inventory_txns 22.808) |
+| Realtime: máy khác UPDATE 1 dòng `customers` trên Postgres | ✅ banner “Có thay đổi mới từ cloud” hiện sau ~2 s (WebSocket `postgres_changes`) |
+| Bấm **Đồng bộ ngay** → dữ liệu mới vào app | ✅ kéo 60.855 dòng, tên khách mới hiện trong *Khách hàng & CRM* |
+| RLS: ghi khi **không** có mã đồng bộ | ✅ bị chặn (`new row violates row-level security policy`, HTTP 401) |
+| RLS: UPDATE/DELETE khi không có mã | ✅ 0 dòng bị ảnh hưởng (RLS lọc im lặng), dữ liệu giữ nguyên |
+| RLS: ghi **có** mã đồng bộ | ✅ 201/204, `rpc/sync_ok` trả `true`; đọc `users` chỉ được khi có mã |
 
 Ảnh kiểm thử nằm trong `docs/screenshots/`.
 

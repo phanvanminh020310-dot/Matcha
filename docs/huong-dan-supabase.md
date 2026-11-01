@@ -2,7 +2,7 @@
 
 > Mục tiêu: đưa 33 bảng + ~60.000 dòng dữ liệu từ trình duyệt lên **Postgres thật** (Supabase free tier), sau đó nhiều máy/many người dùng chung một CSDL.
 > Thời gian: **10–15 phút**. Chi phí: **0 ₫** (gói Free, không cần thẻ).
-> Bạn chỉ cần làm 6 bước dưới đây, cuối cùng copy 2 giá trị gửi lại cho tôi là xong.
+> Bạn chỉ cần làm các bước B1–B6, cuối cùng copy 2 giá trị gửi lại cho tôi là xong. B8 (realtime) và B9 (siết quyền ghi) làm sau, mỗi bước ~3 phút.
 
 ---
 
@@ -15,6 +15,8 @@
 - [ ] B5. Tải `schema.sql` → dán vào **SQL Editor** → **Run**
 - [ ] B6. Bấm **Đẩy dữ liệu lên** → kiểm tra ~60.854 dòng đã sang Postgres
 - [ ] B7. Gửi lại cho tôi `Project URL` + `anon key` để tôi kiểm thử đồng bộ 2 máy
+- [ ] B8. Chạy `realtime.sql` → app báo khi máy khác sửa dữ liệu
+- [ ] B9. Chạy `rls.sql` + cấp **mã đồng bộ** → chỉ thiết bị có mã mới ghi được
 
 ---
 
@@ -123,11 +125,54 @@ Kiểm chứng trên Supabase:
 
 ## B7. Dùng nhiều máy (tuỳ chọn nhưng nên làm)
 
-1. Trên máy thứ 2 (hoặc cửa sổ ẩn danh): mở app → đăng nhập → **Cài đặt → Cơ sở dữ liệu** → dán **đúng URL + key** → bật **Tự tải dữ liệu từ cloud khi mở app** → bấm **Tải từ cloud**.
+1. Trên máy thứ 2 (hoặc cửa sổ ẩn danh): mở app → đăng nhập → **Cài đặt → Cơ sở dữ liệu** → dán **đúng URL + key** (+ **Mã đồng bộ**, xem B9) → bật **Tự tải dữ liệu từ cloud khi mở app** → bấm **Tải từ cloud**.
 2. App sẽ kéo toàn bộ dữ liệu (phân trang 500 dòng/lần) rồi tự tải lại trang — dữ liệu giống hệt máy 1.
 3. Từ lần sau, mỗi lần mở app ở máy đã bật công tắc này, dữ liệu mới nhất được tự kéo về.
+4. Các máy khác **ghi dữ liệu** thì bấm **Đẩy dữ liệu lên** (UPSERT theo khoá chính — không bao giờ xoá dữ liệu cloud trước khi ghi, đứt mạng giữa chừng vẫn an toàn).
 
-> Cách hoạt động (nói rõ để bạn không bất ngờ): app vẫn ghi vào SQLite trong máy cho nhanh, **mỗi lần bấm “Đẩy dữ liệu lên” là ghi đè toàn bộ snapshot lên Postgres**. Vì vậy hãy chọn **một máy làm máy chính** để đẩy; máy khác chỉ *Tải từ cloud*. Muốn nhiều máy cùng ghi realtime thì cần backend + Supabase Auth (tôi làm tiếp được nếu bạn cần).
+> Cách hoạt động: app ghi vào SQLite trong máy cho nhanh, rồi đẩy/kéo với Postgres. *Đẩy* = UPSERT theo khoá chính; *Xoá & đẩy lại* chỉ dùng khi cloud bị lệch hẳn.
+
+---
+
+## B8. Bật realtime — máy khác sửa là app báo ngay (2 phút)
+
+1. Supabase → **SQL Editor** → **New query** → dán toàn bộ nội dung **`docs/sql/realtime.sql`** (hoặc bấm nút **realtime.sql** trong Cài đặt để tải file) → **Run**.
+2. Kiểm tra: câu `select` cuối file phải trả về **11 bảng** (`orders, order_items, payments, order_events, deliveries, delivery_events, inventory_stock, inventory_txns, customers, shifts, print_jobs`).
+3. Trong app: **Cài đặt → Cơ sở dữ liệu** → bật **Theo dõi thay đổi realtime** (mặc định đã bật) → badge góc dưới phải hiện `realtime` màu xanh.
+4. Thử: mở app ở 2 máy → máy A tạo/sửa 1 đơn → máy B hiện banner **“Có thay đổi mới từ cloud”** kèm nút **Đồng bộ ngay**.
+
+> Realtime chỉ *báo có thay đổi*; dữ liệu vẫn được kéo về khi bấm **Đồng bộ ngay** (hoặc lần mở app kế tiếp). App bỏ qua sự kiện trong 15 giây sau lần tự đồng bộ của chính nó để không báo lung tung.
+
+---
+
+## B9. Siết quyền ghi bằng “Mã đồng bộ” (RLS) — nên làm (3 phút)
+
+Vì sao cần: `anon key` nằm trong mã nguồn web, **ai mở web cũng thấy**. Không có RLS thì người lạ có key có thể xoá sạch dữ liệu. Sau bước này, mọi lệnh ghi phải kèm **mã thiết bị** bí mật.
+
+1. Supabase → **SQL Editor** → dán **`docs/sql/rls.sql`** → **Run**. (Chạy lại nhiều lần vô hại.)
+2. Cấp mã cho thiết bị — dán vào SQL Editor, thay `mk_...` bằng mã bạn muốn (tối thiểu 24 ký tự):
+
+   ```sql
+   insert into public.sync_tokens (label, token_hash, branch_id, note) values (
+     'Máy quản lý chuỗi',
+     encode(sha256(convert_to('mk_THAY_MA_CUA_BAN', 'utf8')), 'hex'),
+     null,          -- null = ghi được mọi chi nhánh; 1 = chỉ chi nhánh id 1
+     'máy chính'
+   );
+   ```
+3. Trong app: **Cài đặt → Cơ sở dữ liệu** → dán mã vào ô **Mã đồng bộ (sync token)** → **Kiểm tra kết nối** → phải thấy `Kết nối tốt … · quyền ghi: OK`.
+4. Làm tương tự trên từng máy/trình duyệt (mã có thể dùng chung hoặc cấp riêng từng máy).
+
+| Tình huống | Kết quả sau khi bật RLS |
+| --- | --- |
+| Đọc `orders`, `customers`, `deliveries`… (11 bảng realtime) | Vẫn đọc được bằng anon key — **bắt buộc**, vì Supabase Realtime cần quyền SELECT để bắn sự kiện |
+| Đọc `users`, kho, tài chính… | **Cần mã đồng bộ** |
+| Thêm / sửa / xoá bất kỳ bảng nào | **Luôn cần mã**; sai/thiếu mã → `new row violates row-level security policy` |
+| Mã có `branch_id = 1` | Chỉ ghi được dòng của chi nhánh 1 (bảng có cột `branch_id`) |
+| Mất mã / muốn thu hồi | Cấp mã mới, hoặc `update public.sync_tokens set active = false where label = '...'` |
+| Muốn tạm quay lại trạng thái mở | Chạy `docs/sql/rls-off.sql` (chỉ khi thử nghiệm) |
+
+**Nâng cấp tiếp (tuỳ chọn, khi cần chặn cả quyền đọc theo người dùng):** bật **Supabase Auth**, tắt *Confirm email*, tạo bảng `app_members(uid uuid, branch_id bigint, role text)` ánh xạ `auth.uid()`, rồi đổi policy sang `auth.uid()`/`branch_id`. App đã sẵn chỗ nhập token nên chỉ cần thêm bước đăng nhập cloud — nói tôi biết là tôi làm tiếp.
 
 ---
 
@@ -163,11 +208,13 @@ Tôi sẽ: kiểm tra kết nối từ phía tôi (nếu bạn muốn), chạy k
 
 ## Ghi chú bảo mật (đọc 30 giây)
 
-- `anon` key **được thiết kế để công khai** trong trình duyệt; thứ bảo vệ dữ liệu là **RLS**. Bản schema này đặt policy mở (`USING (true)`) để app demo chạy được ngay ⇒ **ai có URL + key đều đọc/ghi được**.
-- Khi đưa vào vận hành thật, nên:
-  1. Bật **Supabase Auth**, đổi policy sang dạng `auth.uid() = user_id` / theo `branch_id`, hoặc chỉ cho `authenticated`.
-  2. Hoặc chuyển sang gọi qua **Edge Function** (service key nằm ở server, không bao giờ xuống trình duyệt).
-- Không commit key vào GitHub, không gửi key vào nhóm chat công khai.
+- `anon` key **được thiết kế để công khai** trong trình duyệt; thứ bảo vệ dữ liệu là **RLS**.
+- Trạng thái hiện tại của project Matcha:
+  - Đã chạy **`rls.sql`** ⇒ mọi thao tác **ghi** cần header `x-sync-token` khớp SHA-256 trong bảng `sync_tokens`; thiếu/sai mã bị chặn (`HTTP 401` / 0 dòng bị ảnh hưởng).
+  - **Đọc** 11 bảng phục vụ realtime vẫn mở bằng anon key (Supabase Realtime cần quyền SELECT); các bảng còn lại yêu cầu mã.
+  - Mã gốc **không lưu trên cloud**, không nằm trong repo — chỉ nằm trong ô *Mã đồng bộ* của từng máy. Mất máy → `update sync_tokens set active=false`.
+- Nếu cần chặt hơn nữa (chặn cả quyền đọc, phân quyền theo người/chi nhánh): bật **Supabase Auth** + ánh xạ `auth.uid()` (xem cuối B9), hoặc gọi qua **Edge Function** giữ service key ở server.
+- Không commit key vào GitHub, không gửi key vào nhóm chat công khai. Với **mã đồng bộ** cũng vậy.
 
 ## Muốn dùng Neon / Postgres khác?
 
