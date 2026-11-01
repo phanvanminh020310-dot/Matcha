@@ -11,6 +11,8 @@ export interface CloudConfig {
   url: string
   key: string
   autoSync: boolean
+  /** Bật lắng nghe thay đổi từ Postgres (Supabase Realtime) */
+  realtime: boolean
   lastSync: string | null
   lastRows: number
 }
@@ -20,10 +22,10 @@ const KEY = 'matcha.cloud.v1'
 export function loadCloud(): CloudConfig {
   try {
     const raw = localStorage.getItem(KEY)
-    if (!raw) return { url: '', key: '', autoSync: false, lastSync: null, lastRows: 0 }
-    return { url: '', key: '', autoSync: false, lastSync: null, lastRows: 0, ...JSON.parse(raw) }
+    if (!raw) return { url: '', key: '', autoSync: false, realtime: true, lastSync: null, lastRows: 0 }
+    return { url: '', key: '', autoSync: false, realtime: true, lastSync: null, lastRows: 0, ...JSON.parse(raw) }
   } catch {
-    return { url: '', key: '', autoSync: false, lastSync: null, lastRows: 0 }
+    return { url: '', key: '', autoSync: false, realtime: true, lastSync: null, lastRows: 0 }
   }
 }
 

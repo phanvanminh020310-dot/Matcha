@@ -6,6 +6,7 @@ import { useApp } from '../store/app'
 import { PageHeader, ResetDataButton } from '../components/layout/AppShell'
 import { Badge, Button, Card, CardHeader, Field, Input, Modal, Select, Switch, Tabs } from '../components/ui'
 import { dbSizeBytes, run } from '../lib/db'
+import { REALTIME_SQL } from '../lib/realtime'
 import { buildSeedSQL, keyWarning, loadCloud, localCounts, pullAll, pushAll, saveCloud, testCloud, toPgDDL, type CloudConfig, type SyncProgress } from '../lib/cloud'
 import { downloadFile } from '../lib/format'
 import {ROLE_PERMISSIONS, type Role} from '../lib/rbac'
@@ -234,6 +235,10 @@ function CloudDatabase() {
             <span className="text-ink-600 dark:text-ink-300">Tự tải dữ liệu từ cloud khi mở app</span>
             <Switch checked={cfg.autoSync} onChange={(v) => update({ autoSync: v })} label="auto sync" />
           </label>
+          <label className="flex items-center justify-between rounded-xl bg-ink-50 px-3 py-2 text-[12px] dark:bg-ink-800">
+            <span className="text-ink-600 dark:text-ink-300">Theo dõi thay đổi realtime (báo khi máy khác sửa dữ liệu)</span>
+            <Switch checked={cfg.realtime !== false} onChange={(v) => update({ realtime: v })} label="realtime" />
+          </label>
           <div className="flex flex-wrap gap-2">
             <Button variant="secondary" icon={<RefreshCw size={15} />} disabled={testing || !cfg.url || !cfg.key} onClick={async () => {
               setTesting(true)
@@ -304,6 +309,10 @@ function CloudDatabase() {
                 await navigator.clipboard.writeText(toPgDDL())
                 toast({ title: 'Đã copy schema Postgres', tone: 'success' })
               }}>Copy schema</Button>
+              <Button size="sm" variant="ghost" icon={<Download size={14} />} onClick={() => {
+                downloadFile('matcha-realtime.sql', REALTIME_SQL, 'text/plain;charset=utf-8')
+                toast({ title: 'Đã tải realtime.sql', description: 'Chạy 1 lần để bật realtime cho 11 bảng', tone: 'success' })
+              }}>realtime.sql</Button>
             </div>
           </div>
         </Card>

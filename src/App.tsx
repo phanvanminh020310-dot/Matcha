@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { HashRouter, Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom'
 import { AppShell } from './components/layout/AppShell'
 import { Toaster } from './components/ui'
+import { CloudSyncWatcher } from './components/CloudSyncWatcher'
 import { useApp } from './store/app'
 import { initDatabase, type InitProgress } from './lib/db'
 import { loadCloud, pullAll } from './lib/cloud'
@@ -150,6 +151,7 @@ export default function App() {
     <HashRouter>
       <AppRoutes />
       <Toaster />
+      <CloudSyncWatcher />
     </HashRouter>
   )
 }
