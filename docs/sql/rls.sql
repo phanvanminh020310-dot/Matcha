@@ -53,10 +53,45 @@ grant execute on function public.sync_ok() to anon, authenticated;
 grant execute on function public.sync_branch() to anon, authenticated;
 
 -- ---------------------------------------------------------------------------
--- 3. Policy cho 33 bảng nghiệp vụ
+-- 2b. Mã CHỈ ĐỌC (can_write = false) — dùng để gửi link cho người ngoài xem
+-- ---------------------------------------------------------------------------
+alter table public.sync_tokens add column if not exists can_write boolean not null default true;
+
+create or replace function public.sync_write_ok() returns boolean
+language sql stable security definer set search_path = public, pg_temp as $$
+  select exists (
+    select 1 from public.sync_tokens t
+    where t.active and t.can_write
+      and t.token_hash = encode(sha256(convert_to(
+            coalesce(current_setting('request.headers', true)::json ->> 'x-sync-token', ''), 'utf8')), 'hex')
+  );
+$$;
+grant execute on function public.sync_write_ok() to anon, authenticated;
+
+-- Cấp mã mới từ app (chỉ máy đang có mã GHI được mới cấp được).
+-- p_can_write = false  → mã chỉ đọc (an toàn để chia sẻ link)
+create or replace function public.create_share_token(p_label text, p_can_write boolean default false)
+returns text
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  v_token text;
+begin
+  if not public.sync_write_ok() then
+    raise exception 'Chỉ thiết bị có mã GHI được mới cấp được mã mới';
+  end if;
+  v_token := 'mk_' || encode(sha256(convert_to(random()::text || clock_timestamp()::text || coalesce(p_label, ''), 'utf8')), 'hex');
+  insert into public.sync_tokens (label, token_hash, can_write, note)
+  values (coalesce(nullif(p_label, ''), 'Thiết bị chia sẻ'), encode(sha256(convert_to(v_token, 'utf8')), 'hex'), coalesce(p_can_write, false), 'cấp từ app');
+  return v_token;
+end $$;
+grant execute on function public.create_share_token(text, boolean) to anon, authenticated;
+
+-- ---------------------------------------------------------------------------
+-- 3. Policy cho các bảng nghiệp vụ
 --    • ĐỌC  : 11 bảng có realtime → mở cho anon (Supabase Realtime cần quyền SELECT
 --             để bắn sự kiện). Các bảng còn lại (users, kho, tài chính…) → cần mã.
---    • GHI  : luôn cần mã hợp lệ; bảng có cột branch_id thì mã phải đúng chi nhánh.
+--    • GHI  : cần mã có quyền GHI (can_write = true); bảng có cột branch_id thì mã phải đúng chi nhánh.
+--             Mã chỉ đọc (tạo bằng create_share_token(..., false)) đọc được nhưng ghi bị chặn.
 -- ---------------------------------------------------------------------------
 do $$
 declare
@@ -78,8 +113,8 @@ begin
     ) into has_branch;
 
     wcheck := case when has_branch
-      then 'public.sync_ok() and (public.sync_branch() is null or branch_id = public.sync_branch())'
-      else 'public.sync_ok()' end;
+      then 'public.sync_write_ok() and (public.sync_branch() is null or branch_id = public.sync_branch())'
+      else 'public.sync_write_ok()' end;
 
     execute format('alter table public.%I enable row level security', t.relname);
     execute format('grant select, insert, update, delete on public.%I to anon, authenticated', t.relname);

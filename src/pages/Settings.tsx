@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Building2, ClipboardList, Cloud, CreditCard, Database, Download, Grid3x3, RefreshCw, Save, Shield, Store, Upload } from 'lucide-react'
+import { Building2, ClipboardList, Cloud, CreditCard, Database, Download, Grid3x3, RefreshCw, Save, Share2, Shield, Store, Upload } from 'lucide-react'
 import { getAuditLogs, getBranches, getTables, updateTablePosition } from '../lib/api'
 import { useSql } from '../hooks/useDb'
 import { useApp } from '../store/app'
@@ -10,6 +10,7 @@ import { REALTIME_SQL } from '../lib/realtime'
 import { RLS_SQL } from '../lib/rls'
 import { buildSeedSQL, checkToken, cloudCounts, keyWarning, loadCloud, localCounts, pullAll, pushAll, saveCloud, testCloud, toPgDDL, tokenWarning, type CloudConfig, type SyncProgress } from '../lib/cloud'
 import { downloadFile } from '../lib/format'
+import { buildShareLink, mintShareToken, type ShareMode } from '../lib/share'
 import { PERM_GROUPS, getRoles, permsOf } from '../lib/permissions'
 import { METHOD_LABEL, cx, formatDateTime, formatVND } from '../lib/format'
 
@@ -206,6 +207,10 @@ function CloudDatabase() {
   const [diff, setDiff] = useState<{ table: string; local: number; cloud: number }[] | null>(null)
   const [showToken, setShowToken] = useState(false)
   const [lostOpen, setLostOpen] = useState(false)
+  const [shareMode, setShareMode] = useState<ShareMode>('ro')
+  const [shareLabel, setShareLabel] = useState('')
+  const [shareLink, setShareLink] = useState<string | null>(null)
+  const [shareBusy, setShareBusy] = useState(false)
   const [newToken, setNewToken] = useState<{ token: string; sql: string } | null>(null)
   const [tokenState, setTokenState] = useState<{ ok: boolean; message: string } | null>(null)
   const [checkingToken, setCheckingToken] = useState(false)
@@ -407,6 +412,59 @@ function CloudDatabase() {
       )}
 
       <div className="space-y-3">
+        <Card>
+          <CardHeader title="Chia sẻ cho người khác (gửi link là dùng được)" subtitle="Link mang sẵn địa chỉ Postgres + mã truy cập — người nhận KHÔNG phải dán gì" icon={<Share2 size={16} />} />
+          <div className="space-y-2 p-4">
+            <div className="grid gap-2 sm:grid-cols-[1fr_1fr]">
+              <Field label="Người nhận là ai (để đặt tên mã)">
+                <Input value={shareLabel} onChange={(e) => setShareLabel(e.target.value)} placeholder="VD: Quản lý Q3" className="h-9 text-[12.5px]" />
+              </Field>
+              <Field label="Quyền của link" hint={shareMode === 'ro' ? 'Chỉ xem: Postgres chặn mọi thao tác ghi — an toàn gửi cho khách/đối tác' : 'Làm việc: người nhận thêm/sửa dữ liệu được (gửi cho nhân viên)'}>
+                <Select value={shareMode} onChange={(e) => { setShareMode(e.target.value as ShareMode); setShareLink(null) }} className="h-9 text-[12.5px]">
+                  <option value="ro">Chỉ xem (chỉ đọc)</option>
+                  <option value="rw">Làm việc (được ghi)</option>
+                </Select>
+              </Field>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="primary" icon={<Share2 size={15} />} disabled={shareBusy || !!tokenMsg || !cfg.url || !cfg.key} onClick={async () => {
+                setShareBusy(true)
+                setShareLink(null)
+                try {
+                  let token = (cfg.token ?? '').trim()
+                  if (shareMode === 'ro') {
+                    const r = await mintShareToken(cfg, shareLabel || 'Link chỉ xem', false)
+                    if (!r.ok || !r.token) throw new Error(r.message ?? 'Không tạo được mã chỉ đọc')
+                    token = r.token
+                  }
+                  const link = buildShareLink({ url: cfg.url, key: cfg.key, token, mode: shareMode, label: shareLabel })
+                  setShareLink(link)
+                  await navigator.clipboard.writeText(link).catch(() => { /* trình duyệt chặn clipboard */ })
+                  toast({ title: 'Đã tạo link dùng chung', description: 'Đã copy vào clipboard — gửi qua Zalo/Messenger là dùng được', tone: 'success' })
+                } catch (e) {
+                  toast({ title: 'Không tạo được link', description: (e as Error).message.slice(0, 160), tone: 'error' })
+                } finally { setShareBusy(false) }
+              }}>{shareBusy ? 'Đang tạo link…' : 'Tạo link & copy'}</Button>
+              {shareLink && (
+                <Button variant="secondary" onClick={() => { void navigator.clipboard.writeText(shareLink); toast({ title: 'Đã copy link', tone: 'success' }) }}>Copy lại</Button>
+              )}
+            </div>
+            {shareLink && (
+              <div className="space-y-1">
+                <Input readOnly value={shareLink} className="font-mono text-[10.5px]" onFocus={(e) => e.currentTarget.select()} />
+                <p className="text-[11px] text-ink-500 dark:text-ink-400">
+                  Mở link này trên máy/điện thoại khác: app <b>tự cấu hình cloud, tự tải toàn bộ dữ liệu</b> rồi vào màn đăng nhập.
+                  {shareMode === 'ro' && ' Đây là mã CHỈ ĐỌC: người nhận xem được nhưng không sửa/xoá được dữ liệu.'}
+                </p>
+                <a className="text-[11px] text-matcha-700 underline dark:text-matcha-300" href={shareLink} target="_blank" rel="noreferrer">Mở thử link này ↗</a>
+              </div>
+            )}
+            <p className="rounded-xl bg-ink-50 p-2 text-[11px] leading-relaxed text-ink-500 dark:bg-ink-800 dark:text-ink-400">
+              ⚠️ Ai có link là vào được với đúng quyền của link đó. Đừng đăng link lên mạng xã hội; thu hồi bằng cách vào Supabase → bảng <code>sync_tokens</code> → đặt <code>active = false</code>.
+            </p>
+          </div>
+        </Card>
+
         <Card>
           <CardHeader title="Máy mới? Bấm 1 nút là xong" subtitle="Dán URL + anon key + mã đồng bộ vào ô bên trái, rồi bấm nút này" icon={<Cloud size={16} />} />
           <div className="space-y-2 p-4">

@@ -13,6 +13,7 @@ import { useSql } from '../../hooks/useDb'
 import { cx, normalize, ROLE_LABEL } from '../../lib/format'
 import { Badge, Button, IconButton, Kbd } from '../ui'
 import { resetDatabase } from '../../lib/db'
+import { checkWritePermission, loadCloud } from '../../lib/cloud'
 
 const ICONS: Record<string, React.ComponentType<{ size?: number | string; className?: string }>> = {
   ShoppingCart, ChefHat, MonitorPlay, ReceiptText, LayoutDashboard, Boxes, Truck, CupSoda, BookOpenCheck,
@@ -25,6 +26,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate()
   const location = useLocation()
   const [paletteOpen, setPaletteOpen] = useState(false)
+  const [readOnly, setReadOnly] = useState(false)
+
+  // Link chia sẻ "chỉ xem" → hiện nhãn để người dùng biết vì sao không sửa được dữ liệu
+  useEffect(() => {
+    const cfg = loadCloud()
+    if (!cfg.url || !cfg.key) return
+    let alive = true
+    void checkWritePermission(cfg).then((w) => { if (alive && w === false) setReadOnly(true) })
+    return () => { alive = false }
+  }, [])
 
   const branches = useSql(() => getBranches(), [])
   const branch = branches.find((b) => b.id === branchId) ?? branches[0]

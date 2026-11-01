@@ -267,3 +267,21 @@ Bảng chẩn đoán nhanh:
 | Một vài bảng lệch số dòng | Máy chưa tải hết / máy khác vừa thêm dữ liệu | Bấm *Kết nối & tải toàn bộ* hoặc *Đẩy dữ liệu lên* |
 
 > Nút **Sinh mã mới** tạo mã `mk_…`, hiện sẵn câu SQL `insert into public.sync_tokens (label, token_hash …)` — dán vào Supabase SQL Editor, Run, rồi bấm *Dùng mã này cho máy này*. Mỗi máy có thể dùng một mã riêng, tất cả đều hợp lệ.
+
+---
+
+## 12. Gửi link cho người khác dùng ngay (không cần cấu hình)
+
+1. Trên máy đã chạy tốt: **Cài đặt → Cơ sở dữ liệu → “Chia sẻ cho người khác”**.
+2. Nhập tên người nhận (VD “Quản lý Q3”), chọn quyền:
+   - **Chỉ xem (chỉ đọc)** — khuyến nghị khi gửi khách/đối tác: Postgres chặn mọi thao tác ghi.
+   - **Làm việc (được ghi)** — cho nhân viên/chi nhánh cần nhập liệu.
+3. Bấm **Tạo link & copy** → gửi qua Zalo/Messenger/Email.
+4. Người nhận mở link: app tự cấu hình cloud, tự tải toàn bộ dữ liệu, rồi vào màn đăng nhập (mật khẩu demo `123456`).
+
+Lưu ý:
+
+- Ai có link là vào được với **đúng quyền của link** — không đăng công khai.
+- Link chỉ đọc: người nhận xem/ báo cáo được nhưng thêm–sửa–xoá sẽ bị chặn (app hiện nhãn `chỉ xem`).
+- Thu hồi 1 link: Supabase → Table `sync_tokens` → tìm dòng có `label` tương ứng → đặt `active = false`.
+- Link rất dài khi gửi qua một số ứng dụng có thể bị cắt → dùng nút *Copy lại*, hoặc gửi dạng “chỉ mở bằng trình duyệt”.

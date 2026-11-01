@@ -122,6 +122,14 @@ Chi nhánh chuyển được ở góc trên phải: **Q1 · TP.HCM**, **Q3 · TP
 - HUD kiểu app vận tải: số xe đang chạy, còn bao nhiêu km / ETA / tiền thu hộ của xe đang chọn, danh sách đội xe bấm là bay tới.
 - Điều khiển: play/pause, chọn tốc độ 0.5×–4×, ẩn/hiện 3D, tự căn toàn tuyến, về kho, xoay trái/phải. Mất mạng → tự chuyển nền raster OSM.
 
+### Gửi link là dùng được (không phải cấu hình gì)
+
+- Cài đặt → Cơ sở dữ liệu → **“Chia sẻ cho người khác”**: chọn *Chỉ xem* hoặc *Làm việc* → bấm **Tạo link & copy**.
+- Link dạng `https://…/Matcha/#/join?c=…` **mang sẵn** địa chỉ Postgres + anon key + mã truy cập.
+- Người nhận mở link → app **tự cấu hình, tự tải toàn bộ dữ liệu** (62.000+ dòng) → vào màn đăng nhập. Không phải dán gì.
+- Link **“Chỉ xem”** dùng mã `can_write = false`: Postgres (RLS) cho đọc, **chặn mọi thao tác ghi**; app hiện nhãn `chỉ xem` ở thanh trên. Link **“Làm việc”** dùng mã ghi được.
+- Mã mới được cấp bằng RPC `create_share_token()` (chỉ máy đang có mã ghi mới cấp được). Thu hồi: Supabase → `sync_tokens` → `active = false`.
+
 ### GPS THẬT — App tài xế (`#/driver`, mở trên điện thoại của shipper)
 
 - Bật **chia sẻ vị trí** → trình duyệt lấy GPS thật (`watchPosition`, độ chính xác cao), tự gửi khi di chuyển > 15 m hoặc 20 giây.
@@ -353,6 +361,7 @@ Nếu bị chặn ở đâu (quyền GitHub, dịch vụ deploy…), dự án v�
 | Push bảng `roles` lên cloud | ✅ cloud 6 vai trò (owner 24 · manager 22 · cashier 8 · barista 4 · accountant 9 · shipper 2 quyền) |
 | **Máy mới nhập đúng mã đồng bộ** | ✅ nút *Kết nối & tải toàn bộ*: kéo 62.372 dòng / 74 bảng, bật tự đồng bộ, *Đối chiếu* → **Khớp hoàn toàn** |
 | **GPS thật** (không mô phỏng) | ✅ bật chia sẻ vị trí → điểm `source='gps'` (10.7772, 106.7012) nằm trong `driver_positions` **trên Postgres**; bản đồ hiện “1 xe đang phát GPS thật” |
+| **Link dùng chung (chỉ xem)** | ✅ máy B trắng localStorage mở link → tự tải 62.374 dòng, `autoSync=true`, tới màn đăng nhập; ghi bằng mã chỉ-đọc bị Postgres chặn (401) |
 | Schema v5 → v6 (giữ dữ liệu) | ✅ tự tạo 40 bảng mới + sinh dữ liệu cho bảng mới trên máy đang chạy |
 | 75 bảng trên cloud | ✅ `information_schema` = 75 bảng, 74 bảng có 4 policy RLS (đọc/ghi/sửa/xoá) |
 

@@ -30,6 +30,7 @@ import { RolesPage } from './pages/Roles'
 import { ErpSimulatorPage } from './pages/ErpSimulator'
 import { DeliveryPage, TrackingPage } from './pages/Delivery'
 import { DriverPage } from './pages/Driver'
+import { JoinPage } from './pages/Join'
 import { PrintStudioPage } from './pages/PrintStudio'
 
 /* ------------------------------ Boot screen ----------------------------- */
@@ -84,6 +85,7 @@ function AppRoutes() {
   return (
     <Routes>
       <Route path="/login" element={user ? <Navigate to="/pos" replace /> : <LoginPage />} />
+      <Route path="/join" element={<JoinPage />} />
       <Route path="/display" element={<DisplayPage />} />
       <Route path="/track/:code" element={<TrackRoute />} />
       <Route path="/pos" element={<Protected><POSPage /></Protected>} />
@@ -130,7 +132,8 @@ export default function App() {
         // Máy mới (chưa từng tải) mà đã có cấu hình cloud → tự tải ngay lần đầu,
         // không cần người dùng nhớ bật "tự đồng bộ".
         const firstRun = !cloud.lastSync && !!cloud.token
-        if (cloud.url && cloud.key && (cloud.autoSync || firstRun)) {
+        const justSynced = !!cloud.lastSync && Date.now() - new Date(cloud.lastSync).getTime() < 120000
+        if (cloud.url && cloud.key && (cloud.autoSync || firstRun) && !justSynced) {
           console.info('[matcha][cloud] auto-pull bắt đầu', cloud.url)
           try {
             const res = await pullAll(cloud, (p) => { if (!p.done) console.info(`[matcha][cloud] ${p.table} ${p.rows}`) })

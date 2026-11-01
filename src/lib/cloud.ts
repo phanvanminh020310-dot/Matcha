@@ -436,3 +436,16 @@ export async function pullAll(cfg: CloudConfig, onProgress?: (p: SyncProgress) =
 export function localCounts() {
   return TABLES.map((t) => ({ table: t.name, label: t.label, rows: scalar<number>(`SELECT COUNT(*) FROM ${t.name}`) ?? 0 }))
 }
+
+/** Mã hiện tại có quyền GHI không? (link chia sẻ "chỉ xem" sẽ trả false) */
+export async function checkWritePermission(cfg: CloudConfig): Promise<boolean | null> {
+  if (!cfg.url || !cfg.key) return null
+  try {
+    const res = await fetch(`${normUrl(cfg.url)}/rest/v1/rpc/sync_write_ok`, {
+      method: 'POST', headers: headers(cfg), body: '{}', signal: AbortSignal.timeout(12000),
+    })
+    if (!res.ok) return null
+    const val = await res.json().catch(() => null)
+    return val === true
+  } catch { return null }
+}
