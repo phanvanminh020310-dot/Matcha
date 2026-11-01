@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Building2, ClipboardList, Cloud, CreditCard, Database, Download, Grid3x3, RefreshCw, Save, Share2, Shield, Store, Upload } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { Building2, ClipboardList, Cloud, CreditCard, Database, Download, Eye, Grid3x3, RefreshCw, Save, Share2, Shield, Store, Upload } from 'lucide-react'
 import { getAuditLogs, getBranches, getTables, updateTablePosition } from '../lib/api'
 import { useSql } from '../hooks/useDb'
 import { useApp } from '../store/app'
@@ -8,7 +8,7 @@ import { Badge, Button, Card, CardHeader, Field, Input, Modal, Select, Switch, T
 import { dbSizeBytes, run } from '../lib/db'
 import { REALTIME_SQL } from '../lib/realtime'
 import { RLS_SQL } from '../lib/rls'
-import { buildSeedSQL, checkToken, cloudCounts, keyWarning, loadCloud, localCounts, pullAll, pushAll, saveCloud, testCloud, toPgDDL, tokenWarning, type CloudConfig, type SyncProgress } from '../lib/cloud'
+import { buildSeedSQL, checkToken, checkWritePermission, cloudCounts, keyWarning, loadCloud, localCounts, pullAll, pushAll, saveCloud, testCloud, toPgDDL, tokenWarning, type CloudConfig, type SyncProgress } from '../lib/cloud'
 import { downloadFile } from '../lib/format'
 import { buildShareLink, mintShareToken, type ShareMode } from '../lib/share'
 import { PERM_GROUPS, getRoles, permsOf } from '../lib/permissions'
@@ -215,9 +215,62 @@ function CloudDatabase() {
   const [tokenState, setTokenState] = useState<{ ok: boolean; message: string } | null>(null)
   const [checkingToken, setCheckingToken] = useState(false)
   const tokenMsg = tokenWarning(cfg.token)
+  // Mã hiện tại có quyền ghi? false = máy này dùng LINK CHỈ XEM → ẩn toàn bộ thông tin kết nối
+  const [canWrite, setCanWrite] = useState<boolean | null>(null)
+  useEffect(() => {
+    let alive = true
+    if (!cfg.url || !cfg.key) return
+    void checkWritePermission(cfg).then((w) => { if (alive) setCanWrite(w) })
+    return () => { alive = false }
+  }, [cfg.url, cfg.key, cfg.token])
+  const readOnly = canWrite === false
   const [diffBusy, setDiffBusy] = useState(false)
   const counts = localCounts()
   const totalRows = counts.reduce((sum, c) => sum + c.rows, 0)
+  let host = ''
+  try { host = new URL(cfg.url).host } catch { host = '' }
+
+  if (readOnly) {
+    return (
+      <div className="grid gap-3 lg:grid-cols-2">
+        <Card>
+          <CardHeader title="Máy này đang ở chế độ CHỈ XEM" subtitle="Dùng link chia sẻ chỉ-đọc do chủ chuỗi gửi" icon={<Eye size={16} />} />
+          <div className="space-y-3 p-4 text-[12.5px] text-ink-600 dark:text-ink-300">
+            <p className="rounded-xl bg-amber-50 p-2.5 text-[11.5px] leading-relaxed text-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
+              Bạn xem được toàn bộ dữ liệu (đơn, kho, khách, báo cáo) nhưng <b>không sửa/xoá/đẩy dữ liệu lên cloud</b> — Postgres chặn mọi thao tác ghi.
+              Thông tin kết nối (anon key, mã đồng bộ) đã được ẩn trên máy này.
+            </p>
+            <div className="space-y-1">
+              <Row label="Máy chủ dữ liệu" value={host || '—'} />
+              <Row label="Lần tải gần nhất" value={cfg.lastSync ? vnTime(cfg.lastSync) : '—'} />
+              <Row label="Số dòng đã tải" value={cfg.lastRows ? cfg.lastRows.toLocaleString('vi-VN') : totalRows.toLocaleString('vi-VN')} />
+              <Row label="Quyền" value="Chỉ đọc (không ghi được)" />
+            </div>
+            <Button variant="primary" icon={<Download size={15} />} disabled={!!busy} onClick={() => runSync('pull')}>
+              {busy === 'pull' ? 'Đang tải…' : 'Tải dữ liệu mới nhất từ cloud'}
+            </Button>
+            {progress && <p className="text-[11px] text-ink-400">{progress.done ? 'Hoàn tất' : `Đang tải ${progress.table}`} · {progress.index}/{progress.total} bảng</p>}
+            <p className="text-[11px] leading-relaxed text-ink-500 dark:text-ink-400">
+              Cần quyền nhập liệu? Nhờ chủ chuỗi vào <b>Cài đặt → Cơ sở dữ liệu → Chia sẻ cho người khác</b> tạo link <b>“Làm việc (được ghi)”</b> rồi gửi lại.
+            </p>
+          </div>
+        </Card>
+        <Card>
+          <CardHeader title="Dữ liệu trên máy này" subtitle={`${counts.length} bảng · ${totalRows.toLocaleString('vi-VN')} dòng`} icon={<Database size={16} />} />
+          <div className="max-h-[300px] overflow-y-auto p-3">
+            <div className="grid grid-cols-2 gap-1">
+              {counts.map((c) => (
+                <div key={c.table} className="flex items-center justify-between rounded-lg bg-ink-50 px-2 py-1 text-[11px] dark:bg-ink-800">
+                  <span className="truncate font-mono text-ink-500">{c.table}</span>
+                  <span className="font-semibold tabular-nums">{c.rows.toLocaleString('vi-VN')}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </Card>
+      </div>
+    )
+  }
 
   const update = (patch: Partial<CloudConfig>) => {
     const next = { ...cfg, ...patch }

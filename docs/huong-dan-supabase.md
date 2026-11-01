@@ -282,6 +282,8 @@ Bảng chẩn đoán nhanh:
 Lưu ý:
 
 - Ai có link là vào được với **đúng quyền của link** — không đăng công khai.
-- Link chỉ đọc: người nhận xem/ báo cáo được nhưng thêm–sửa–xoá sẽ bị chặn (app hiện nhãn `chỉ xem`).
+- Link chỉ đọc: người nhận xem/ báo cáo được nhưng thêm–sửa–xoá sẽ bị chặn (app hiện nhãn `👁 chỉ xem`).
+- Máy dùng link chỉ đọc **không xem được thông tin kết nối**: màn *Cài đặt → Cơ sở dữ liệu* chỉ còn thẻ trạng thái + nút *Tải dữ liệu mới nhất*, **không hiện anon key, không hiện mã đồng bộ**, không có nút Đẩy/Tạo link/Sinh mã; menu *Quản trị dữ liệu* cũng bị ẩn.
+  (Mã vẫn nằm trong bộ nhớ trình duyệt của chính máy đó — về nguyên tắc người rành kỹ thuật mở DevTools vẫn đọc được, nhưng mã đó **chỉ đọc** nên không sửa được dữ liệu; muốn chặn hẳn thì thu hồi: `sync_tokens.active = false`.)
 - Thu hồi 1 link: Supabase → Table `sync_tokens` → tìm dòng có `label` tương ứng → đặt `active = false`.
 - Link rất dài khi gửi qua một số ứng dụng có thể bị cắt → dùng nút *Copy lại*, hoặc gửi dạng “chỉ mở bằng trình duyệt”.

@@ -39,7 +39,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const branches = useSql(() => getBranches(), [])
   const branch = branches.find((b) => b.id === branchId) ?? branches[0]
-  const items = useMemo(() => (role ? navFor(role as Role) : []), [role])
+  const items = useMemo(() => {
+    const list = role ? navFor(role as Role) : []
+    // Máy dùng link CHỈ XEM: ẩn màn hình quản trị dữ liệu (ghi sẽ bị Postgres chặn)
+    return readOnly ? list.filter((i) => i.to !== '/admin') : list
+  }, [role, readOnly])
   const groups = useMemo(() => {
     const order: string[] = ['Bán hàng', 'Vận hành', 'Quản trị', 'Hệ thống']
     return order.map((g) => ({ group: g, items: items.filter((i) => i.group === g) })).filter((g) => g.items.length)
