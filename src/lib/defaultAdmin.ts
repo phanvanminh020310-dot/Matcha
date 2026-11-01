@@ -50,7 +50,7 @@ export async function ensureDefaultAdmin(): Promise<void> {
       if (isLocked(row.password) || !row.is_active) {
         const hash = await hashPassword(DEFAULT_ADMIN_PASS)
         withSystemWrite(() =>
-          run('UPDATE users SET password = ?, is_active = 1, role = ? WHERE id = ?', [hash, row.role || 'owner', row.id], { silent: true }),
+          run('UPDATE users SET password = ?, is_active = 1, role = ? WHERE id = ?', [hash, row.role || 'owner', row.id]),
         )
         markDefaultPassword(true)
       }
@@ -63,12 +63,11 @@ export async function ensureDefaultAdmin(): Promise<void> {
       run(
         'INSERT INTO users (name, email, phone, password, role, branch_id, salary, is_active, hired_at, avatar_emoji) VALUES (?,?,?,?,?,?,?,?,?,?)',
         ['Quản trị viên', DEFAULT_ADMIN_EMAIL, '', hash, 'owner', branch, 0, 1, new Date().toISOString().slice(0, 10), '👑'],
-        { silent: true },
       ),
     )
     markDefaultPassword(true)
     console.info('[matcha] đã tạo tài khoản quản trị mặc định admin / admin@123')
   } catch (e) {
-    console.warn('[matcha] ensureDefaultAdmin:', (e as Error).message)
+    console.error('[matcha] ensureDefaultAdmin LỖI:', (e as Error).message)
   }
 }
