@@ -7,6 +7,7 @@ import { useNavigate } from 'react-router-dom'
 import { CheckCircle2, CloudDownload, Loader2, TriangleAlert } from 'lucide-react'
 import { pullAll, loadCloud, saveCloud, type SyncProgress } from '../lib/cloud'
 import { applySharePayload, readShareFromLocation, type SharePayload } from '../lib/share'
+import { isTursoUrl, loadTurso, tursoDelta } from '../lib/turso'
 import { ensureRoles } from '../lib/permissions'
 import { refreshRbac } from '../lib/rbac'
 import { Button, Card } from '../components/ui'
@@ -30,12 +31,18 @@ export function JoinPage() {
     }
     setPayload(p)
     applySharePayload(p)
-    setStep('Đang kết nối Postgres…')
+    setStep(isTursoUrl(p.url) ? 'Đang kết nối Turso…' : 'Đang kết nối Postgres…')
     const cfg = loadCloud()
-    pullAll(cfg, (pr) => {
-      setProgress(pr)
-      if (!pr.done) setStep(`Đang tải bảng ${pr.table}…`)
-    })
+    const job = isTursoUrl(p.url)
+      ? tursoDelta(loadTurso(), (pr) => {
+          setProgress(pr)
+          if (!pr.done) setStep(`Đang tải bảng ${pr.table}…`)
+        }).then((r) => ({ rows: r.applied }))
+      : pullAll(cfg, (pr) => {
+          setProgress(pr)
+          if (!pr.done) setStep(`Đang tải bảng ${pr.table}…`)
+        })
+    job
       .then((res) => {
         saveCloud({ ...loadCloud(), autoSync: true, lastSync: new Date().toISOString(), lastRows: res.rows })
         ensureRoles()

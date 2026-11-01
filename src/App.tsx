@@ -6,7 +6,7 @@ import { CloudSyncWatcher } from './components/CloudSyncWatcher'
 import { useApp } from './store/app'
 import { initDatabase, type InitProgress } from './lib/db'
 import { checkWritePermission, clearCloudError, hydrateCloud, loadCloud, pullAll, saveCloud, setCloudError } from './lib/cloud'
-import { hydrateTurso, loadTurso, tursoCanWrite, tursoDelta, tursoReady } from './lib/turso'
+import { flushOutbox, hydrateTurso, loadTurso, startAutoPush, stopAutoPush, tursoCanWrite, tursoDelta, tursoReady } from './lib/turso'
 import { setReadOnlyMode } from './lib/db'
 import { ensureRoles } from './lib/permissions'
 import { refreshRbac } from './lib/rbac'
@@ -140,6 +140,13 @@ export default function App() {
         // Turso: máy chỉ có token đọc → chặn ghi ngay (Turso cũng chặn ở tầng máy chủ)
         if (tursoOn) {
           setReadOnlyMode(!tursoCanWrite(turso))
+          // Máy có quyền ghi → tự đẩy phần thay đổi lên Turso sau mỗi thao tác bán hàng
+          if (tursoCanWrite(turso)) {
+            startAutoPush()
+            window.addEventListener('beforeunload', () => { void flushOutbox() })
+          } else {
+            stopAutoPush()
+          }
         }
 
         // LINK CHỈ XEM: kiểm tra quyền ghi 1 lần khi mở app → chặn ghi ở mọi màn hình

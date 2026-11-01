@@ -7,6 +7,7 @@
  *  • Link "Làm việc"     → kèm mã GHI được — gửi cho nhân viên/chi nhánh.
  */
 import { clearCloudError, loadCloud, normCloudUrl, saveCloud, type CloudConfig } from './cloud'
+import { isTursoUrl, loadTurso, saveTurso } from './turso'
 
 export type ShareMode = 'ro' | 'rw'
 
@@ -36,8 +37,9 @@ export function encodeShare(p: SharePayload): string {
 export function decodeShare(code: string): SharePayload | null {
   try {
     const raw = JSON.parse(dec(code)) as { u?: string; k?: string; t?: string; m?: string; l?: string }
-    if (!raw.u || !raw.k || !raw.t) return null
-    return { url: raw.u, key: raw.k, token: raw.t, mode: raw.m === 'rw' ? 'rw' : 'ro', label: raw.l }
+    // Link Turso chỉ cần địa chỉ + token (cột t để trống)
+    if (!raw.u || !raw.k) return null
+    return { url: raw.u, key: raw.k, token: raw.t ?? '', mode: raw.m === 'rw' ? 'rw' : 'ro', label: raw.l }
   } catch { return null }
 }
 
@@ -48,7 +50,27 @@ export function buildShareLink(p: SharePayload): string {
 }
 
 /** Tạo mã mới trên Postgres qua RPC create_share_token (cần máy đang có mã GHI). */
-export async function mintShareToken(cfg: CloudConfig, label: string, canWrite: boolean): Promise<{ ok: boolean; token?: string; message?: string }> {
+export async function mintShareToken(cfg: CloudConfig, label: string, canWrite: boolean): Promise<{ ok: boolean; token?: string; message?: string; url?: string; key?: string }> {
+  // --- TURSO: link mang thẳng token Turso (ghi = token ghi, chỉ xem = token chỉ đọc) ---
+  const t = loadTurso()
+  if (t.enabled && t.url) {
+    void label
+    const token = canWrite ? t.tokenRw : t.tokenRo
+    if (!token) {
+      return {
+        ok: false,
+        message: canWrite
+          ? 'Máy này không giữ token GHI nên không cấp được link làm việc. Dán token ghi ở khối “Đồng bộ Turso”.'
+          : 'Chưa có token CHỈ ĐỌC trên máy. Tạo token read-only trong Turso rồi dán vào khối “Đồng bộ Turso”.',
+      }
+    }
+    return { ok: true, token, url: t.url, key: token }
+  }
+  return mintSupabaseShareToken(cfg, label, canWrite)
+}
+
+/** Cấp mã chia sẻ qua Postgres (Supabase) — mỗi link 1 mã riêng, thu hồi được từng người. */
+export async function mintSupabaseShareToken(cfg: CloudConfig, label: string, canWrite: boolean): Promise<{ ok: boolean; token?: string; message?: string }> {
   const url = normCloudUrl(cfg.url)
   if (!url || !cfg.key) return { ok: false, message: 'Chưa cấu hình cloud' }
   try {
@@ -78,6 +100,20 @@ export async function mintShareToken(cfg: CloudConfig, label: string, canWrite: 
 
 /** Áp cấu hình từ link vào máy này (lưu localStorage, bật tự đồng bộ). */
 export function applySharePayload(p: SharePayload) {
+  if (isTursoUrl(p.url)) {
+    // Link Turso: token nằm ở p.key; "làm việc" → token ghi, "chỉ xem" → token chỉ đọc
+    saveTurso({
+      url: p.url.trim(),
+      tokenRw: p.mode === 'rw' ? p.key.trim() : '',
+      tokenRo: p.mode === 'rw' ? (loadTurso().tokenRo ?? '') : p.key.trim(),
+      enabled: true,
+      lastSeq: 0,
+      lastSync: null,
+      lastRows: 0,
+    })
+    clearCloudError()
+    return
+  }
   const cfg = loadCloud()
   saveCloud({ ...cfg, url: p.url.trim(), key: p.key.trim(), token: p.token.trim(), autoSync: true, realtime: true })
   clearCloudError()

@@ -582,7 +582,7 @@ function CloudDatabase() {
                   const r = await mintShareToken(cfg, shareLabel || (shareMode === 'ro' ? 'Link chỉ xem' : 'Link làm việc'), shareMode === 'rw')
                   if (!r.ok || !r.token) throw new Error(r.message ?? 'Không tạo được mã chia sẻ')
                   const token = r.token
-                  const link = buildShareLink({ url: cfg.url, key: cfg.key, token, mode: shareMode, label: shareLabel })
+                  const link = buildShareLink({ url: r.url ?? cfg.url, key: r.key ?? cfg.key, token, mode: shareMode, label: shareLabel })
                   setShareLink(link)
                   await navigator.clipboard.writeText(link).catch(() => { /* trình duyệt chặn clipboard */ })
                   toast({ title: 'Đã tạo link dùng chung', description: 'Đã copy vào clipboard — gửi qua Zalo/Messenger là dùng được', tone: 'success' })

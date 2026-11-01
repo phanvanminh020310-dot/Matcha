@@ -14,7 +14,7 @@
  */
 import { Libsql, toHttps, type Arg } from './libsql'
 import { TABLES } from './schema'
-import { all, runMany, scalar, withSystemWrite, type SqlValue } from './db'
+import { all, dbEvents, getDb, runMany, scalar, withSystemWrite, type SqlValue } from './db'
 import { openSecrets, sealSecrets } from './secureStore'
 
 /* ------------------------------- cấu hình -------------------------------- */
@@ -356,6 +356,8 @@ export async function tursoPullAll(cfg: TursoConfig = loadTurso(), onProgress?: 
   withSystemWrite(() => runMany(statements))
 
   const { lastSeq } = await tursoMaxSeq(cfg)
+  // Dữ liệu vừa tải từ Turso không cần đẩy ngược lại → dọn nhật ký trong máy
+  try { withSystemWrite(() => runMany([{ sql: `DELETE FROM ${'_outbox'}` }], { silent: true })) } catch { /* chưa có bảng */ }
   saveTurso({ ...cfg, lastSeq, lastSync: new Date().toISOString(), lastRows: total })
   onProgress?.({ table: 'xong', index: seq.length, total: seq.length, rows: total, done: true })
   return { rows: total, results: plan.map((p) => ({ table: p.table, rows: p.rows.length })) }
@@ -385,6 +387,7 @@ export async function tursoDelta(cfg: TursoConfig = loadTurso(), onProgress?: (p
   const LIMIT = 500
   let applied = 0
   let guard = 0
+  const marks: { tbl: string; row: string }[] = []
   for (;;) {
     const r = await db.all(
       `SELECT seq, tbl, op, row_id, payload FROM sync_changes WHERE seq > ? ORDER BY seq LIMIT ${LIMIT}`,
@@ -400,7 +403,9 @@ export async function tursoDelta(cfg: TursoConfig = loadTurso(), onProgress?: (p
       if (op === 'delete') {
         const pk = pkCols(table)[0]
         statements.push({ sql: `DELETE FROM "${table}" WHERE "${pk}" = ?`, params: [sqlValue(rowCell)] })
+        marks.push({ tbl: table, row: String(rowCell ?? '') })
       } else if (payloadCell) {
+        marks.push({ tbl: table, row: String(rowCell ?? '') })
         let obj: Record<string, unknown>
         try { obj = JSON.parse(String(payloadCell)) as Record<string, unknown> } catch { since = seq; continue }
         const cols = Object.keys(obj)
@@ -415,6 +420,12 @@ export async function tursoDelta(cfg: TursoConfig = loadTurso(), onProgress?: (p
       applied++
     }
     if (statements.length) withSystemWrite(() => runMany(statements, { silent: true }))
+    // Những dòng vừa nhận từ Turso không cần đẩy ngược lại
+    if (marks.length) {
+      const clear = marks.map((m) => ({ sql: `DELETE FROM _outbox WHERE tbl = ? AND row_id = ?`, params: [m.tbl, m.row] as SqlValue[] }))
+      try { withSystemWrite(() => runMany(clear, { silent: true })) } catch { /* chưa có bảng */ }
+      marks.length = 0
+    }
     saveTurso({ ...cfg, lastSeq: since, lastSync: new Date().toISOString() })
     onProgress?.({ table: 'thay đổi', index: 1, total: 1, rows: applied })
     if (r.rows.length < LIMIT || ++guard > 40) break
@@ -423,4 +434,167 @@ export async function tursoDelta(cfg: TursoConfig = loadTurso(), onProgress?: (p
   saveTurso({ ...loadTurso(), lastSeq: since, lastSync: new Date().toISOString(), lastRows: applied })
   onProgress?.({ table: 'xong', index: 1, total: 1, rows: applied, done: true })
   return { applied, lastSeq: since, full: false }
+}
+
+const getDbLazy = () => getDb()
+const dbModule = () => ({ dbEvents })
+
+/* ------------------- NHẬT KÝ THAY ĐỔI NGAY TRONG MÁY ---------------------- */
+/**
+ * Muốn đẩy lên Turso CHỈ NHỮNG DÒNG VỪA SỬA (chứ không phải cả bảng 22.000 dòng),
+ * ta cài trigger ngay trong SQLite của máy: mỗi INSERT/UPDATE/DELETE ghi 1 dòng vào
+ * bảng `_outbox`. Sau khi đẩy xong thì xoá các dòng đã đẩy.
+ */
+const OUTBOX = '_outbox'
+
+/** Cài bảng + trigger nhật ký trong máy (chạy 1 lần cho mỗi máy). Lưu dữ liệu KHÔNG bị ảnh hưởng. */
+export function ensureOutbox() {
+  withSystemWrite(() => {
+    const db = getDbLazy()
+    db.run(`CREATE TABLE IF NOT EXISTS ${OUTBOX} (seq INTEGER PRIMARY KEY AUTOINCREMENT, tbl TEXT NOT NULL, op TEXT NOT NULL, row_id TEXT, at TEXT NOT NULL DEFAULT (datetime('now')))`)
+    for (const t of SYNC_TABLES) {
+      const pk = pkCols(t)[0]
+      if (!pk) continue
+      db.run(`CREATE TRIGGER IF NOT EXISTS lo_${t}_ins AFTER INSERT ON "${t}" BEGIN INSERT INTO ${OUTBOX} (tbl, op, row_id) VALUES ('${t}', 'insert', CAST(NEW."${pk}" AS TEXT)); END`)
+      db.run(`CREATE TRIGGER IF NOT EXISTS lo_${t}_upd AFTER UPDATE ON "${t}" BEGIN INSERT INTO ${OUTBOX} (tbl, op, row_id) VALUES ('${t}', 'update', CAST(NEW."${pk}" AS TEXT)); END`)
+      db.run(`CREATE TRIGGER IF NOT EXISTS lo_${t}_del AFTER DELETE ON "${t}" BEGIN INSERT INTO ${OUTBOX} (tbl, op, row_id) VALUES ('${t}', 'delete', CAST(OLD."${pk}" AS TEXT)); END`)
+    }
+  })
+}
+
+/** Xoá nhật ký trong máy (sau khi tải toàn bộ từ Turso — những dòng đó không cần đẩy ngược lại). */
+export function clearOutbox() {
+  try {
+    withSystemWrite(() => runMany([{ sql: `DELETE FROM ${OUTBOX}` }, { sql: `DELETE FROM sqlite_sequence WHERE name = '${OUTBOX}'` }], { silent: true }))
+  } catch { /* chưa có bảng */ }
+}
+
+/** Số thay đổi đang chờ đẩy lên Turso. */
+export function pendingChanges(): number {
+  try { return Number(scalar<number>(`SELECT count(*) FROM ${OUTBOX}`) ?? 0) } catch { return 0 }
+}
+
+/**
+ * Đẩy các thay đổi đang chờ lên Turso.
+ * Gộp 100 dòng/câu lệnh, chỉ đẩy đúng dòng đã đổi; xoá theo khoá chính.
+ */
+export async function pushOutbox(cfg: TursoConfig = loadTurso()): Promise<{ rows: number; tables: number }> {
+  if (!tursoCanWrite(cfg)) throw new Error('Máy này chỉ có quyền ĐỌC — không đẩy dữ liệu lên được.')
+  const marks = all<{ seq: number; tbl: string; op: string; row_id: string | null }>(
+    `SELECT seq, tbl, op, row_id FROM ${OUTBOX} ORDER BY seq LIMIT 5000`,
+  )
+  if (!marks.length) return { rows: 0, tables: 0 }
+
+  // gom theo bảng: mỗi dòng chỉ lấy thao tác CUỐI CÙNG
+  const dirty = new Map<string, Map<string, 'upsert' | 'delete'>>()
+  let maxSeq = 0
+  for (const m of marks) {
+    maxSeq = Math.max(maxSeq, Number(m.seq))
+    if (!SYNC_TABLES.includes(m.tbl) || m.row_id === null) continue
+    if (!dirty.has(m.tbl)) dirty.set(m.tbl, new Map())
+    dirty.get(m.tbl)!.set(String(m.row_id), m.op === 'delete' ? 'delete' : 'upsert')
+  }
+
+  const db = tursoClient(cfg)
+  const order = orderedTables()
+  const tables = [...dirty.keys()].sort((a, b) => order.indexOf(a) - order.indexOf(b))
+  let pushed = 0
+
+  // 1) thêm/sửa: cha trước con
+  for (const table of tables) {
+    const pk = pkCols(table)[0]
+    const upserts = [...dirty.get(table)!].filter(([, op]) => op === 'upsert').map(([id]) => id)
+    if (!upserts.length) continue
+    const rows = upserts
+      .map((id) => all<Record<string, unknown>>(`SELECT * FROM "${table}" WHERE "${pk}" = ? LIMIT 1`, [id])[0])
+      .filter(Boolean)
+    if (!rows.length) continue
+    const cols = Object.keys(rows[0])
+    for (let i = 0; i < rows.length; i += 100) {
+      const slice = rows.slice(i, i + 100).map((r) => cols.map((c) => sqlValue(r[c])))
+      await db.run([upsertSql(table, cols, slice, pkCols(table))])
+      pushed += slice.length
+    }
+  }
+
+  // 2) xoá: con trước cha
+  for (const table of [...tables].reverse()) {
+    const pk = pkCols(table)[0]
+    const dels = [...dirty.get(table)!].filter(([, op]) => op === 'delete').map(([id]) => id)
+    if (!dels.length) continue
+    for (let i = 0; i < dels.length; i += 100) {
+      const slice = dels.slice(i, i + 100)
+      await db.run(slice.map((id) => ({ sql: `DELETE FROM "${table}" WHERE "${pk}" = ?`, args: [id as Arg] })))
+      pushed += slice.length
+    }
+  }
+
+  withSystemWrite(() => runMany([{ sql: `DELETE FROM ${OUTBOX} WHERE seq <= ?`, params: [maxSeq] }], { silent: true }))
+  return { rows: pushed, tables: tables.length }
+}
+
+/* ------------------------- TỰ ĐẨY SAU KHI BÁN HÀNG ---------------------- */
+
+let unsub: (() => void) | null = null
+let timer: ReturnType<typeof setTimeout> | null = null
+let running = false
+let again = false
+let lastPushAt = 0
+let lastPushRows = 0
+
+export function tursoPushStats() {
+  return { lastPushAt, lastPushRows, pending: pendingChanges() }
+}
+
+function schedulePush(delay = 3000) {
+  if (timer) clearTimeout(timer)
+  timer = setTimeout(() => { void flushOutbox() }, delay)
+}
+
+/** Đẩy ngay (không chờ). */
+export async function flushOutbox(): Promise<{ rows: number }> {
+  const cfg = loadTurso()
+  if (!cfg.enabled || !tursoCanWrite(cfg)) return { rows: 0 }
+  if (running) { again = true; return { rows: 0 } }
+  running = true
+  try {
+    const res = await pushOutbox(cfg)
+    if (res.rows) {
+      lastPushAt = Date.now()
+      lastPushRows = res.rows
+      saveTurso({ ...loadTurso(), lastSync: new Date().toISOString(), lastRows: res.rows })
+      window.dispatchEvent(new CustomEvent('matcha:turso-pushed', { detail: res.rows }))
+    }
+    return res
+  } catch (e) {
+    const msg = (e as Error).message
+    console.warn('[matcha][turso] đẩy thất bại:', msg)
+    window.dispatchEvent(new CustomEvent('matcha:cloud-error', { detail: `Đồng bộ Turso: ${msg}` }))
+    schedulePush(30000) // thử lại sau 30 giây, dữ liệu vẫn nằm trong máy
+    return { rows: 0 }
+  } finally {
+    running = false
+    if (again) { again = false; schedulePush(800) }
+  }
+}
+
+/** Bật tự đẩy: mỗi thao tác ghi trong app → sau ~3 giây đẩy phần thay đổi lên Turso. */
+export function startAutoPush() {
+  if (unsub) return
+  ensureOutbox()
+  const { dbEvents } = dbModule()
+  unsub = dbEvents.subscribe(() => {
+    const cfg = loadTurso()
+    if (!cfg.enabled || !tursoCanWrite(cfg)) return
+    schedulePush()
+  })
+  schedulePush(1500)
+  window.addEventListener('online', () => schedulePush(500))
+}
+
+export function stopAutoPush() {
+  unsub?.()
+  unsub = null
+  if (timer) clearTimeout(timer)
+  timer = null
 }
