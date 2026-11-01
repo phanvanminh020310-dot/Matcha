@@ -293,6 +293,7 @@ Nếu bị chặn ở đâu (quyền GitHub, dịch vụ deploy…), dự án v�
 | RLS: ghi khi **không** có mã đồng bộ | ✅ bị chặn (`new row violates row-level security policy`, HTTP 401) |
 | RLS: UPDATE/DELETE khi không có mã | ✅ 0 dòng bị ảnh hưởng (RLS lọc im lặng), dữ liệu giữ nguyên |
 | RLS: ghi **có** mã đồng bộ | ✅ 201/204, `rpc/sync_ok` trả `true`; đọc `users` chỉ được khi có mã |
+| **Tải từ cloud khi thiếu mã** (RLS chặn đọc) | ✅ báo lỗi rõ ràng, **dữ liệu trên máy giữ nguyên** (pull tải đủ rồi mới ghi đè trong 1 transaction), banner cảnh báo + nút *Mở Cài đặt* |
 
 Ảnh kiểm thử nằm trong `docs/screenshots/`.
 
