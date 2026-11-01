@@ -259,22 +259,23 @@ export async function pushAll(cfg: CloudConfig, onProgress?: (p: SyncProgress) =
   return { rows: total }
 }
 
-/** Kéo dữ liệu từ Postgres về máy (thay thế nội dung từng bảng, có phân trang). */
+/**
+ * Kéo dữ liệu từ Postgres về máy.
+ * AN TOÀN: tải đủ TẤT CẢ các bảng vào bộ nhớ trước, rồi mới xoá & ghi đè trong MỘT
+ * transaction. Nếu mạng/quyền lỗi giữa chừng → dữ liệu trên máy giữ nguyên
+ * (bản cũ xoá trước rồi tải sau, hỏng giữa chừng là mất sạch dữ liệu máy).
+ */
 export async function pullAll(cfg: CloudConfig, onProgress?: (p: SyncProgress) => void) {
   const base = normUrl(cfg.url)
-  let total = 0
-  const results: { table: string; rows: number }[] = []
-  const PAGE = 500 // Supabase/PostgREST giới hạn số dòng mỗi request → phải phân trang bằng Range
+  const PAGE = 500 // PostgREST giới hạn số dòng mỗi request → phân trang bằng Range
   const meta = (name: string) => TABLES.find((t) => t.name === name) ?? { name, label: name }
-  // xoá sạch theo thứ tự ngược (con trước, cha sau) để không vướng khoá ngoại
-  for (const name of [...SYNC_ORDER].reverse()) {
-    runMany([{ sql: `DELETE FROM ${name}`, params: [] as SqlValue[] }])
-  }
+  const plan: { table: string; rows: Record<string, unknown>[] }[] = []
+  let total = 0
 
+  // 1) Tải về bộ nhớ
   for (let i = 0; i < SYNC_ORDER.length; i++) {
     const t = meta(SYNC_ORDER[i])
-    const orderKeys = pkCols(t.name)
-    const orderBy = orderKeys.map((c) => `${c}.asc`).join(',')
+    const orderBy = pkCols(t.name).map((c) => `${c}.asc`).join(',')
     const rows: Record<string, unknown>[] = []
     for (let from = 0; from < 200000; from += PAGE) {
       const res = await fetch(`${base}/rest/v1/${t.name}?select=*&order=${orderBy}`, {
@@ -283,33 +284,50 @@ export async function pullAll(cfg: CloudConfig, onProgress?: (p: SyncProgress) =
       })
       if (!res.ok) {
         if (res.status === 404 && from === 0) break // bảng chưa tạo → bỏ qua
-        throw new Error(`Đọc ${t.name} thất bại: HTTP ${res.status} ${(await res.text()).slice(0, 120)}`)
+        const body = (await res.text()).slice(0, 140)
+        if (res.status === 401 || res.status === 403) {
+          throw new Error(`Không đọc được bảng ${t.name} (HTTP ${res.status}): cloud đã bật RLS và "Mã đồng bộ" sai hoặc chưa nhập. Dữ liệu trên máy vẫn giữ nguyên.`)
+        }
+        throw new Error(`Đọc ${t.name} thất bại: HTTP ${res.status} ${body}`)
       }
       const batch = (await res.json()) as Record<string, unknown>[]
       rows.push(...batch)
       onProgress?.({ table: t.name, index: i + 1, total: SYNC_ORDER.length, rows: rows.length })
       if (batch.length < PAGE) break
     }
-    if (!rows.length) { results.push({ table: t.name, rows: 0 }); continue }
+    plan.push({ table: t.name, rows })
+    total += rows.length
+  }
+
+  // 2) Chốt an toàn: RLS chặn đọc trả về 0 dòng (không phải lỗi HTTP) ⇒ tuyệt đối không xoá dữ liệu máy
+  const branchRows = plan.find((p) => p.table === 'branches')?.rows.length ?? 0
+  if (branchRows === 0) {
+    throw new Error('Cloud trả về 0 dòng ở bảng "branches" — thường do thiếu "Mã đồng bộ" (RLS chặn đọc) hoặc cloud chưa có dữ liệu. Đã giữ nguyên dữ liệu trên máy.')
+  }
+
+  // 3) Xoá + ghi đè trong MỘT transaction (lỗi là rollback toàn bộ)
+  const statements: { sql: string; params: SqlValue[] }[] = []
+  for (const name of [...SYNC_ORDER].reverse()) statements.push({ sql: `DELETE FROM ${name}`, params: [] })
+  for (const { table, rows } of plan) {
+    if (!rows.length) continue
     const cols = Object.keys(rows[0])
-    const statements = [
-      ...rows.map((r) => ({
-        sql: `INSERT INTO ${t.name} (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`,
+    for (const r of rows) {
+      statements.push({
+        sql: `INSERT INTO ${table} (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`,
         params: cols.map((c) => {
           const v = r[c]
           if (typeof v === 'boolean') return v ? 1 : 0
           if (v && typeof v === 'object') return JSON.stringify(v)
           return (v ?? null) as SqlValue
         }),
-      })),
-    ]
-    runMany(statements)
-    total += rows.length
-    results.push({ table: t.name, rows: rows.length })
+      })
+    }
   }
+  runMany(statements)
+
   saveCloud({ ...cfg, lastSync: new Date().toISOString(), lastRows: total })
-  onProgress?.({ table: 'xong', index: TABLES.length, total: TABLES.length, rows: total, done: true })
-  return { rows: total, results }
+  onProgress?.({ table: 'xong', index: SYNC_ORDER.length, total: SYNC_ORDER.length, rows: total, done: true })
+  return { rows: total, results: plan.map((p) => ({ table: p.table, rows: p.rows.length })) }
 }
 
 /** Đếm nhanh số dòng từng bảng để hiển thị trạng thái. */
