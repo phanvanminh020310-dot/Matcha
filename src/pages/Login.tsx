@@ -6,9 +6,8 @@ import { getUserByEmail, getUsers } from '../lib/api'
 import { useSql } from '../hooks/useDb'
 import type { Role } from '../lib/rbac'
 import { Button, Field, Input } from '../components/ui'
-import { AdminGate } from '../components/AdminGate'
-import { adminUnlocked } from '../lib/adminAuth'
 import { hashPassword, isLocked, passwordProblem, verifyPassword } from '../lib/passwords'
+import { DEFAULT_ADMIN_EMAIL, DEFAULT_ADMIN_PASS, markDefaultPassword } from '../lib/defaultAdmin'
 import { run } from '../lib/db'
 import { ROLE_LABEL } from '../lib/format'
 
@@ -25,12 +24,10 @@ export function LoginPage() {
   const hasLoginAccount = users.some((u) => u.is_active && !isLocked(u.password))
   const setupMode = users.length === 0 || !hasLoginAccount
 
-  const [email, setEmail] = useState(() => localStorage.getItem(LAST_EMAIL) ?? '')
+  const [email, setEmail] = useState(() => localStorage.getItem(LAST_EMAIL) || DEFAULT_ADMIN_EMAIL)
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
-  const [gateOpen, setGateOpen] = useState(false)
-  const [unlocked, setUnlocked] = useState(() => adminUnlocked())
 
   // ----- thiết lập lần đầu -----
   const [name, setName] = useState(() => localStorage.getItem(LAST_NAME) ?? '')
@@ -52,6 +49,8 @@ export function LoginPage() {
         try { run('UPDATE users SET password = ? WHERE id = ?', [await hashPassword(password), u.id]) } catch { /* chỉ xem */ }
       }
       localStorage.setItem(LAST_EMAIL, u.email)
+      // Theo dõi xem tài khoản này còn dùng mật khẩu mặc định hay không (để hiện cảnh báo)
+      markDefaultPassword(password === DEFAULT_ADMIN_PASS)
       login(u)
       toast({ title: `Xin chào ${u.name}!`, description: `Vai trò ${ROLE_LABEL[u.role as Role]}`, tone: 'success' })
       navigate('/pos')
@@ -92,8 +91,6 @@ export function LoginPage() {
 
   return (
     <>
-      <AdminGate open={gateOpen} onClose={() => setGateOpen(false)} onUnlocked={() => setUnlocked(true)} />
-
       <div className="relative flex min-h-dvh items-center justify-center bg-cream-100 px-4 py-10 dark:bg-ink-950">
         <div className="pointer-events-none absolute inset-0 overflow-hidden">
           <div className="absolute -left-32 -top-24 h-[380px] w-[380px] rounded-full bg-matcha-200/40 blur-3xl dark:bg-matcha-900/20" />
@@ -172,10 +169,16 @@ export function LoginPage() {
             )}
           </div>
 
-          <div className="mt-4 flex flex-col items-center gap-1.5 text-center">
-            <button className="flex items-center gap-1.5 text-[11.5px] font-medium text-ink-500 transition-colors hover:text-matcha-700 dark:text-ink-400 dark:hover:text-matcha-300" onClick={() => setGateOpen(true)}>
-              <KeyRound size={13} /> {unlocked ? 'Quản trị CSDL: đã mở khoá' : 'Quản trị cơ sở dữ liệu'}
-            </button>
+          <div className="mt-4 flex flex-col items-center gap-2 text-center">
+            {!setupMode && (
+              <p className="w-full rounded-xl border border-matcha-200 bg-matcha-50 px-3 py-2 text-[11.5px] leading-relaxed text-matcha-900 dark:border-matcha-800 dark:bg-matcha-900/20 dark:text-matcha-100">
+                <KeyRound size={12} className="mr-1 inline" />
+                Lần đầu vào: tài khoản <b>admin</b> · mật khẩu <b>admin@123</b>
+                <span className="block text-[11px] text-matcha-700 dark:text-matcha-300">
+                  Vào xong hãy đổi mật khẩu ở <b>Cài đặt → Đổi mật khẩu</b>, rồi tạo tài khoản nhân viên trong <b>Nhân sự</b>.
+                </span>
+              </p>
+            )}
             <p className="flex items-center gap-1.5 text-[11px] text-ink-400">
               <ShieldCheck size={12} className="text-matcha-600" /> Quên mật khẩu? Chủ chuỗi cấp lại trong Nhân sự.
             </p>

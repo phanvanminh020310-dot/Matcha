@@ -15,6 +15,7 @@ import { cx, normalize, ROLE_LABEL } from '../../lib/format'
 import { Badge, Button, IconButton, Kbd } from '../ui'
 import { resetDatabase } from '../../lib/db'
 import { checkWritePermission, loadCloud } from '../../lib/cloud'
+import { usingDefaultPassword } from '../../lib/defaultAdmin'
 import { isReadOnlyMode } from '../../lib/db'
 
 const ICONS: Record<string, React.ComponentType<{ size?: number | string; className?: string }>> = {
@@ -93,6 +94,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [])
 
   const currentLabel = items.find((i) => location.pathname.startsWith(i.to))?.label ?? 'Tổng quan'
+  const defaultPw = usingDefaultPassword()
   const compact = sidebarCollapsed
 
   return (
@@ -238,7 +240,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         )}
 
-        <main className="min-w-0 flex-1 px-3 pb-10 pt-4 sm:px-5">{children}</main>
+        <main className="min-w-0 flex-1 px-3 pb-10 pt-4 sm:px-5">
+          {defaultPw && (
+            <div className="mb-3 flex flex-wrap items-center gap-2 rounded-2xl border border-amber-300 bg-amber-50 px-3 py-2 text-[12px] text-amber-900 dark:border-amber-800 dark:bg-amber-900/25 dark:text-amber-100">
+              <span className="font-semibold">⚠️ Tài khoản đang dùng mật khẩu mặc định (admin@123)</span>
+              <span className="text-[11.5px] text-amber-800 dark:text-amber-200">Ai biết địa chỉ app cũng đăng nhập được. Đổi ngay:</span>
+              <button
+                className="rounded-lg bg-amber-800 px-2 py-1 text-[11px] font-semibold text-white hover:bg-amber-900"
+                onClick={() => { window.location.hash = '#/settings'; setTimeout(() => window.dispatchEvent(new CustomEvent('matcha:open-change-pw')), 300) }}
+              >
+                Đổi mật khẩu
+              </button>
+            </div>
+          )}
+          {children}
+        </main>
       </div>
 
       {paletteOpen && <CommandPalette onClose={() => setPaletteOpen(false)} />}

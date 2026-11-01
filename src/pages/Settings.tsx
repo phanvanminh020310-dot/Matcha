@@ -4,11 +4,11 @@ import { getAuditLogs, getBranches, getTables, updateTablePosition } from '../li
 import { useSql } from '../hooks/useDb'
 import { useApp } from '../store/app'
 import { PageHeader, ResetDataButton } from '../components/layout/AppShell'
-import { AdminGate, LockedNotice } from '../components/AdminGate'
 import { TursoPanel } from '../components/TursoPanel'
-import { adminChangePassword, adminLogout, adminUnlocked, adminUsername } from '../lib/adminAuth'
 import { Badge, Button, Card, CardHeader, Field, Input, Modal, Select, Switch, Tabs, Textarea } from '../components/ui'
-import { dbSizeBytes, run } from '../lib/db'
+import { dbSizeBytes, one, run } from '../lib/db'
+import { hashPassword, passwordProblem, verifyPassword } from '../lib/passwords'
+import { markDefaultPassword } from '../lib/defaultAdmin'
 import { REALTIME_SQL } from '../lib/realtime'
 import { RLS_SQL } from '../lib/rls'
 import { buildSeedSQL, checkToken, checkWritePermission, cloudCounts, flushCloudSave, keyWarning, loadCloud, localCounts, pullAll, pushAll, refreshWritePermission, saveCloud, testCloud, toPgDDL, tokenPermission, tokenWarning, type CloudConfig, type SyncProgress } from '../lib/cloud'
@@ -26,11 +26,17 @@ const PERM_LABEL: Record<string, string> = {
 }
 
 export function SettingsPage() {
-  const { branchId, toast } = useApp()
+  const { branchId, toast, user } = useApp()
   const [tab, setTab] = useState<'store' | 'tables' | 'rbac' | 'audit' | 'cloud' | 'system'>('store')
-  const [unlocked, setUnlocked] = useState(() => adminUnlocked())
-  const [gateOpen, setGateOpen] = useState(false)
+  // Chỉ tài khoản QUẢN TRỊ (chủ chuỗi) mới thấy phần cấu hình cơ sở dữ liệu.
+  // Không còn mật khẩu thứ hai: đăng nhập bằng tài khoản admin là đủ.
+  const unlocked = user?.role === 'owner'
   const [pwOpen, setPwOpen] = useState(false)
+  useEffect(() => {
+    const open = () => setPwOpen(true)
+    window.addEventListener('matcha:open-change-pw', open)
+    return () => window.removeEventListener('matcha:open-change-pw', open)
+  }, [])
   const branches = useSql(() => getBranches(), [])
   const tables = useSql(() => getTables(branchId), [branchId])
   const audit = useSql(() => getAuditLogs(80), [])
@@ -45,30 +51,31 @@ export function SettingsPage() {
           unlocked ? (
             <div className="flex flex-wrap items-center gap-2">
               <span className="rounded-lg bg-matcha-50 px-2 py-1 text-[11px] font-semibold text-matcha-800 dark:bg-matcha-900/30 dark:text-matcha-200">
-                🔓 Quản trị: {adminUsername() ?? 'admin'}
+                🔓 Quản trị: {user?.name ?? 'admin'}
               </span>
-              <Button size="sm" variant="ghost" onClick={() => setPwOpen(true)}>Đổi mật khẩu</Button>
-              <Button size="sm" variant="ghost" onClick={async () => { await adminLogout(); setUnlocked(false); setTab('store'); toast({ title: 'Đã khoá khu vực quản trị', tone: 'success' }) }}>Khoá</Button>
+              <Button size="sm" variant="ghost" icon={<Lock size={14} />} onClick={() => setPwOpen(true)}>Đổi mật khẩu</Button>
             </div>
-          ) : (
-            <Button size="sm" variant="secondary" icon={<Lock size={14} />} onClick={() => setGateOpen(true)}>Quản trị CSDL</Button>
-          )
+          ) : null
         } />
       <Tabs value={tab} onChange={setTab} className="mb-3" tabs={[
         { value: 'store', label: 'Cửa hàng' }, { value: 'tables', label: 'Sơ đồ bàn' }, { value: 'rbac', label: 'Phân quyền' },
         { value: 'audit', label: 'Nhật ký' },
-        // Tab cơ sở dữ liệu CHỈ xuất hiện sau khi mở khoá bằng tài khoản quản trị
+        // Tab cơ sở dữ liệu CHỈ hiện với tài khoản quản trị (chủ chuỗi)
         ...(unlocked ? [{ value: 'cloud' as const, label: 'Cơ sở dữ liệu 🔒' }] : []),
         { value: 'system', label: 'Hệ thống' },
       ]} />
 
-      <AdminGate open={gateOpen} onClose={() => setGateOpen(false)} onUnlocked={() => { setUnlocked(true); setTab('cloud') }} />
+      {pwOpen && <ChangeAdminPassword onClose={() => setPwOpen(false)} />}
 
-      {pwOpen && (
-        <ChangeAdminPassword onClose={() => { setPwOpen(false); setUnlocked(adminUnlocked()) }} />
-      )}
-
-      {tab === 'cloud' && (unlocked ? <CloudDatabase /> : <LockedNotice onUnlock={() => setGateOpen(true)} />)}
+      {tab === 'cloud' && (unlocked ? <CloudDatabase /> : (
+        <Card className="p-6">
+          <p className="text-[13px] font-semibold text-ink-900 dark:text-ink-50">Khu vực được bảo vệ</p>
+          <p className="mt-1 max-w-md text-[12px] leading-relaxed text-ink-500 dark:text-ink-400">
+            Phần cấu hình cơ sở dữ liệu chỉ hiện với <b>tài khoản quản trị (chủ chuỗi)</b>.
+            Đăng nhập bằng tài khoản <b>admin</b> để xem.
+          </p>
+        </Card>
+      ))}
 
       {tab === 'store' && (
         <div className="grid gap-3 lg:grid-cols-2">
@@ -262,7 +269,7 @@ function CloudDatabase() {
   const readOnly = canWrite === false
   // Quản trị CSDL đã mở khoá thì LUÔN thấy đầy đủ ô nhập — kể cả khi máy đang bị chặn ghi
   // (mã đồng bộ hết hiệu lực/bị thu hồi) — để dán mã mới và khôi phục quyền ghi.
-  const adminMode = adminUnlocked()
+  const adminMode = useApp((st) => st.user?.role) === 'owner'
   const [diffBusy, setDiffBusy] = useState(false)
   const counts = localCounts()
   const totalRows = counts.reduce((sum, c) => sum + c.rows, 0)
@@ -276,8 +283,8 @@ function CloudDatabase() {
           <CardHeader title="Máy này đang ở chế độ CHỈ XEM" subtitle="Dùng link chia sẻ chỉ-đọc do chủ chuỗi gửi" icon={<Eye size={16} />} />
           <div className="space-y-3 p-4 text-[12.5px] text-ink-600 dark:text-ink-300">
             <p className="rounded-xl bg-amber-50 p-2.5 text-[11.5px] leading-relaxed text-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
-              Bạn xem được toàn bộ dữ liệu (đơn, kho, khách, báo cáo) nhưng <b>không sửa/xoá/đẩy dữ liệu lên cloud</b> — Postgres chặn mọi thao tác ghi.
-              Thông tin kết nối (anon key, mã đồng bộ) đã được ẩn trên máy này.
+              Bạn xem được toàn bộ dữ liệu (đơn, kho, khách, báo cáo) nhưng <b>không sửa/xoá/đẩy dữ liệu lên máy chủ</b> — máy chủ dữ liệu chặn mọi thao tác ghi.
+              Thông tin kết nối đã được ẩn trên máy này.
             </p>
             <div className="space-y-1">
               <Row label="Máy chủ dữ liệu" value={host || '—'} />
@@ -722,7 +729,7 @@ function CloudDatabase() {
 }
 
 function ChangeAdminPassword({ onClose }: { onClose: () => void }) {
-  const { toast } = useApp()
+  const { toast, user } = useApp()
   const [oldPw, setOldPw] = useState('')
   const [newPw, setNewPw] = useState('')
   const [confirm, setConfirm] = useState('')
@@ -731,25 +738,35 @@ function ChangeAdminPassword({ onClose }: { onClose: () => void }) {
 
   const save = async () => {
     if (newPw !== confirm) { setErr('Mật khẩu nhập lại không khớp.'); return }
+    const problem = passwordProblem(newPw)
+    if (problem) { setErr(problem); return }
+    if (!user) { setErr('Chưa đăng nhập.'); return }
     setBusy(true); setErr(null)
-    const r = await adminChangePassword(oldPw, newPw)
-    setBusy(false)
-    if (!r.ok) { setErr(r.message ?? 'Không đổi được'); return }
-    toast({ title: 'Đã đổi mật khẩu quản trị', description: 'Mọi phiên quản trị đã bị huỷ — đăng nhập lại bằng mật khẩu mới.', tone: 'success' })
-    onClose()
+    try {
+      const row = one<{ password: string }>('SELECT password FROM users WHERE id = ?', [user.id])
+      if (!row) { setErr('Không tìm thấy tài khoản.'); return }
+      const v = await verifyPassword(oldPw, row.password)
+      if (!v.ok) { setErr('Mật khẩu hiện tại không đúng.'); return }
+      run('UPDATE users SET password = ? WHERE id = ?', [await hashPassword(newPw), user.id])
+      markDefaultPassword(false)
+      toast({ title: 'Đã đổi mật khẩu', description: 'Lần sau đăng nhập bằng mật khẩu mới.', tone: 'success' })
+      onClose()
+    } finally {
+      setBusy(false)
+    }
   }
 
   return (
-    <Modal open onClose={onClose} title="Đổi mật khẩu quản trị" footer={
+    <Modal open onClose={onClose} title="Đổi mật khẩu quản trị" size="sm" footer={
       <>
-        <Button variant="ghost" onClick={onClose}>Huỷ</Button>
-        <Button variant="primary" disabled={busy} onClick={save}>{busy ? 'Đang lưu…' : 'Đổi mật khẩu'}</Button>
+        <Button variant="ghost" onClick={onClose}>Đóng</Button>
+        <Button variant="primary" disabled={busy} onClick={save}>{busy ? 'Đang lưu…' : 'Lưu mật khẩu'}</Button>
       </>
     }>
       <div className="space-y-3">
-        <Field label="Mật khẩu hiện tại"><Input type="password" value={oldPw} onChange={(e) => setOldPw(e.target.value)} autoComplete="off" /></Field>
-        <Field label="Mật khẩu mới" hint="Tối thiểu 10 ký tự, nên có chữ hoa, số và ký tự đặc biệt."><Input type="password" value={newPw} onChange={(e) => setNewPw(e.target.value)} autoComplete="off" /></Field>
-        <Field label="Nhập lại mật khẩu mới"><Input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="off" /></Field>
+        <Field label="Mật khẩu hiện tại"><Input type="password" value={oldPw} onChange={(e) => setOldPw(e.target.value)} /></Field>
+        <Field label="Mật khẩu mới" hint="Tối thiểu 8 ký tự, có chữ và số"><Input type="password" value={newPw} onChange={(e) => setNewPw(e.target.value)} /></Field>
+        <Field label="Nhập lại mật khẩu mới"><Input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} /></Field>
         {err && <p className="rounded-xl bg-rose-50 p-2 text-[11.5px] text-rose-700 dark:bg-rose-900/20 dark:text-rose-200">{err}</p>}
       </div>
     </Modal>

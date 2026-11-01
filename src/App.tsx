@@ -6,6 +6,7 @@ import { CloudSyncWatcher } from './components/CloudSyncWatcher'
 import { useApp } from './store/app'
 import { initDatabase, type InitProgress } from './lib/db'
 import { checkWritePermission, clearCloudError, hydrateCloud, loadCloud, pullAll, saveCloud, setCloudError } from './lib/cloud'
+import { ensureDefaultAdmin } from './lib/defaultAdmin'
 import { flushOutbox, hydrateTurso, loadTurso, startAutoPush, stopAutoPush, tursoCanWrite, tursoDelta, tursoReady } from './lib/turso'
 import { setReadOnlyMode } from './lib/db'
 import { ensureRoles } from './lib/permissions'
@@ -127,6 +128,7 @@ export default function App() {
       .then(async () => {
         if (!mounted) return
         ensureRoles()
+        await ensureDefaultAdmin() // luôn có tài khoản admin / admin@123 để vào ngay
         refreshRbac()
         // Nếu user đã cấu hình Postgres cloud và bật tự đồng bộ → kéo dữ liệu mới nhất về máy
         // Giải mã anon key + mã đồng bộ đã mã hoá trong máy (khoá AES nằm trong IndexedDB)
@@ -179,6 +181,7 @@ export default function App() {
               console.info('[matcha][turso] delta xong', r.applied, 'thay đổi, seq', r.lastSeq)
               if (r.applied > 0) {
                 ensureRoles()
+                await ensureDefaultAdmin()
                 refreshRbac()
                 window.dispatchEvent(new CustomEvent('matcha:db-refresh'))
               }
@@ -204,6 +207,7 @@ export default function App() {
             console.info('[matcha][cloud] auto-pull xong', res.rows, 'dòng')
             if (firstRun) saveCloud({ ...loadCloud(), autoSync: true })
             ensureRoles() // cloud có thể trống bảng roles → tạo lại vai trò mặc định
+            await ensureDefaultAdmin()
             refreshRbac()
             clearCloudError()
             if (res.rows > 0) window.dispatchEvent(new CustomEvent('matcha:db-refresh'))
