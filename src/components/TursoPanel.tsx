@@ -6,8 +6,9 @@ import { useState } from 'react'
 import { CheckCircle2, Cloud, Database, Download, RefreshCw, ShieldCheck, Upload } from 'lucide-react'
 import { Badge, Button, Card, CardHeader, Field, Input, Switch } from './ui'
 import { formatDateTime } from '../lib/format'
+import { localCounts } from '../lib/cloud'
 import {
-  loadTurso, saveTurso, tursoCanWrite, tursoDelta, tursoPullAll, tursoPushAll, tursoReady, tursoTest, tursoWriteMode,
+  loadTurso, pendingChanges, saveTurso, tursoCanWrite, tursoDelta, tursoPullAll, tursoPushAll, tursoReady, tursoTest, tursoWriteMode,
   type SyncProgress, type TursoConfig,
 } from '../lib/turso'
 
@@ -64,6 +65,8 @@ export function TursoPanel() {
     }
   }
 
+  const localRows = (() => { try { return localCounts().reduce((a, c) => a + c.rows, 0) } catch { return 0 } })()
+  const pending = (() => { try { return pendingChanges() } catch { return 0 } })()
   const ready = tursoReady(cfg)
   const canWrite = tursoCanWrite(cfg)
   const mode = tursoWriteMode(cfg)
@@ -169,10 +172,16 @@ export function TursoPanel() {
           <Button variant="secondary" icon={<RefreshCw size={15} />} disabled={!ready || busy !== null} onClick={() => run('test')}>
             {busy === 'test' ? 'Đang kiểm tra…' : 'Kiểm tra kết nối'}
           </Button>
-          <Button variant="primary" icon={<Upload size={15} />} disabled={!ready || !canWrite || busy !== null} onClick={() => run('push')}>
+          <Button variant="primary" icon={<Upload size={15} />} disabled={!ready || !canWrite || busy !== null} onClick={() => {
+            if (!confirm('Đẩy TOÀN BỘ dữ liệu máy này lên Turso?\n\nViệc này ghi khoảng ' + localRows.toLocaleString('vi-VN') + ' dòng lên Turso (tốn hạn mức ghi).\nBình thường KHÔNG cần bấm: app tự đẩy phần thay đổi sau mỗi thao tác.\nChỉ dùng khi máy mới, hoặc nghi dữ liệu bị lệch.')) return
+            void run('push')
+          }}>
             {busy === 'push' ? 'Đang đẩy…' : 'Đẩy dữ liệu lên'}
           </Button>
-          <Button icon={<Download size={15} />} disabled={!ready || busy !== null} onClick={() => run('pull')}>
+          <Button icon={<Download size={15} />} disabled={!ready || busy !== null} onClick={() => {
+            if (!confirm('Tải TOÀN BỘ dữ liệu từ Turso về máy?\n\nViệc này đọc toàn bộ dữ liệu (tốn hạn mức đọc) và thay dữ liệu trên máy bằng bản trên Turso.\nBình thường KHÔNG cần bấm: mở app là máy tự lấy phần thay đổi.')) return
+            void run('pull')
+          }}>
             {busy === 'pull' ? 'Đang tải…' : 'Tải toàn bộ về máy'}
           </Button>
           <Button variant="ghost" icon={<Cloud size={15} />} disabled={!ready || busy !== null} onClick={() => run('delta')}>
@@ -201,6 +210,7 @@ export function TursoPanel() {
 
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-ink-400">
           <span className="inline-flex items-center gap-1"><ShieldCheck size={12} /> Mốc thay đổi: seq {cfg.lastSeq.toLocaleString('vi-VN')}</span>
+          {cfg.enabled && <span>Đang chờ đẩy: {pending.toLocaleString('vi-VN')} thay đổi</span>}
           {cfg.lastSync && <span>Đồng bộ cuối: {formatDateTime(cfg.lastSync)}</span>}
           {cfg.lastRows > 0 && <span>{cfg.lastRows.toLocaleString('vi-VN')} dòng</span>}
         </div>
