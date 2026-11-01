@@ -4,6 +4,7 @@ import { AppShell } from './components/layout/AppShell'
 import { Toaster } from './components/ui'
 import { useApp } from './store/app'
 import { initDatabase, type InitProgress } from './lib/db'
+import { loadCloud, pullAll } from './lib/cloud'
 import { LoginPage } from './pages/Login'
 import { POSPage } from './pages/POS'
 import { KDSPage } from './pages/KDS'
@@ -110,7 +111,18 @@ export default function App() {
   useEffect(() => {
     let mounted = true
     initDatabase((p) => { if (mounted) setProgress((prev) => [...prev, p]) })
-      .then(() => { if (mounted) setReady(true) })
+      .then(async () => {
+        if (!mounted) return
+        setReady(true)
+        // Nếu user đã cấu hình Postgres cloud và bật tự đồng bộ → kéo dữ liệu mới nhất về máy
+        const cloud = loadCloud()
+        if (cloud.autoSync && cloud.url && cloud.key) {
+          try {
+            const res = await pullAll(cloud)
+            if (res.rows > 0) window.dispatchEvent(new CustomEvent('matcha:db-refresh'))
+          } catch { /* offline: vẫn dùng dữ liệu IndexedDB */ }
+        }
+      })
       .catch((e) => { if (mounted) setError(String(e)) })
     return () => { mounted = false }
   }, [])

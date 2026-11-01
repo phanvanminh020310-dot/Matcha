@@ -24,6 +24,22 @@ Bấm là dùng — không đăng nhập, không cài đặt. Màn hình đăng 
 | --- | --- |
 | ![ERP](docs/screenshots/21-erp-simulator.png) | ![Display](docs/screenshots/06-man-hinh-goi-so.png) |
 
+| Giao hàng & điều phối (bản đồ OSM thật) | Theo dõi shipper trực tuyến |
+| --- | --- |
+| ![Delivery](docs/screenshots/25-giao-hang-dieu-phoi.png) | ![Map](docs/screenshots/26-ban-do-shipper.png) |
+
+| Studio in ấn (thiết kế mẫu K80/A5) | Trang theo dõi đơn của khách |
+| --- | --- |
+| ![Print](docs/screenshots/27-studio-in-an.png) | ![Track](docs/screenshots/30-trang-theo-doi-khach.png) |
+
+| Thanh toán VietQR chuẩn EMVCo | Đối soát chuyển khoản |
+| --- | --- |
+| ![VietQR](docs/screenshots/28-thanh-toan-vietqr.png) | ![Reconcile](docs/screenshots/29-doi-soat-chuyen-khoan.png) |
+
+| Kết nối Postgres thật (Supabase/Neon) | Thiết kế phiếu giao hàng A5 |
+| --- | --- |
+| ![Cloud](docs/screenshots/34-csdl-postgres.png) | ![A5](docs/screenshots/33-studio-phieu-giao-hang.png) |
+
 Các ảnh khác trong [`docs/screenshots`](docs/screenshots): đăng nhập, thanh toán, hoá đơn, đơn hàng, thực đơn, công thức, kho, mua hàng, khách hàng, khuyến mãi, nhân sự, tài chính, báo cáo, cài đặt, SQL Console, dark mode, tablet.
 
 ---
@@ -78,6 +94,39 @@ Chi nhánh chuyển được ở góc trên phải: **Q1 · TP.HCM**, **Q3 · TP
 10. **Tài chính**: sổ thu chi, chi phí cố định theo tháng, **P&L** (doanh thu − COGS − chi phí vận hành), xuất CSV.
 11. **Báo cáo**: 7 nhóm báo cáo trong UI (sản phẩm, danh mục, giờ, kênh, nhân viên, khuyến mãi, ca) với biểu đồ + bảng + **xuất CSV**; các chỉ tiêu còn lại (tồn kho, P&L, công nợ) nằm ở trang Kho / Tài chính.
 12. **Cài đặt**: thông tin chi nhánh (tên, địa chỉ, hotline, VAT), phương thức thanh toán, **sơ đồ bàn kéo thả**, **ma trận phân quyền** 5 vai trò × 20 quyền, **audit log**, thông tin CSDL + Reset.
+
+### Giao hàng chuẩn Shopee (màn hình *Giao hàng & điều phối*)
+
+- **Bản đồ trực tuyến thật**: tile OpenStreetMap + Leaflet, marker SVG cho quán / điểm giao / tài xế.
+- **Geocode thật**: tìm địa chỉ qua Nominatim (OSM), có fallback điểm mẫu khi offline.
+- **Định tuyến thật**: OSRM `router.project-osrm.org` → khoảng cách, thời gian, hình học tuyến đường vẽ trên bản đồ.
+- **Phí ship theo km**: 5 bậc (≤2km 12k → >9km 45k), tự tính khi tạo vận đơn.
+- **Luồng trạng thái**: chờ tài xế → đã gán → đã lấy hàng → đang giao → đã giao / thất bại, mỗi bước ghi `delivery_events` kèm toạ độ + người thực hiện.
+- **Theo dõi realtime**: mô phỏng tài xế chạy dọc tuyến OSRM (tiến trình tính theo giờ thật giữa `picked_at` → `eta_at`), có ETA, cảnh báo trễ, COD, đánh giá sao.
+- **Trang cho khách**: `#/track/VD000123` — không cần đăng nhập, bản đồ + timeline + phí + COD (nút *Link theo dõi* trong chi tiết vận đơn).
+
+### Thanh toán thật (VietQR EMVCo) + đối soát
+
+- Sinh payload **VietQR chuẩn NAPAS 247/EMVCo**: TLV, GUID NAPAS, BIN ngân hàng thật (Vietcombank 970436, Techcombank 970407, MB 970422…), amount, memo, **CRC-16/CCITT** → quét được bằng app ngân hàng bất kỳ.
+- POS hiển thị QR thật (`qrcode`), nút copy payload / tải PNG, hiện CRC để đối chiếu.
+- **Đối soát** (Tài chính → *Đối soát chuyển khoản*): danh sách giao dịch QR/ví chờ xác nhận, nhập mã giao dịch ngân hàng (`FT…`) → ghi `payments.bank_txn_ref`, `verified_at`, `verified_by` + audit log.
+- Số tài khoản nhận tiền quản lý trong bảng `bank_accounts` (theo từng chi nhánh).
+
+### Studio in ấn chuyên nghiệp (màn hình *Studio in ấn*)
+
+- **6 mẫu dựng sẵn**: hoá đơn K80, tem ly / phiếu pha chế K57, phiếu giao hàng A5, biên bản kiểm kê, nhãn kệ, báo cáo chốt ca.
+- **Trình thiết kế**: thư viện 13 loại khối (chữ, cặp nhãn–giá trị, bảng món, tổng tiền, thanh toán, QR, barcode, ô chữ ký…), đổi thứ tự, cỡ chữ, độ đậm, căn lề, IN HOA, chèn biến `{{order.code}}`, `{{delivery.cod}}`…
+- **Xem trước đúng khổ giấy** (80/57/148/210 mm) với QR + barcode Code128 render thật (`jsbarcode`).
+- **In thật**: iframe ẩn + `@page { size: <khổ> }` → hộp thoại in của hệ điều hành (máy in hoá đơn, PDF). Lưu mẫu vào bảng `print_templates`, đặt mặc định theo loại.
+- **In hàng loạt**: in hoá đơn cho toàn bộ đơn trong ngày hoặc danh sách chọn; mỗi lệnh ghi vào `print_jobs` (mẫu, bản ghi, số bản, máy in, người bấm).
+
+### Cơ sở dữ liệu thật — Postgres (Supabase / Neon)
+
+- **Cài đặt → Cơ sở dữ liệu**: dán `Project URL` + `anon key` của Supabase (hoặc PostgREST bất kỳ) → *Kiểm tra kết nối* → *Đẩy dữ liệu lên* / *Tải từ cloud*.
+- Tải **`schema.sql`** (sinh tự động từ `src/lib/schema.ts`): 33 bảng, khoá ngoại, chỉ mục, **RLS + GRANT** cho `anon`/`authenticated` — chạy 1 lần trong SQL Editor là xong.
+- Tải **`seed.sql`**: toàn bộ dữ liệu đang chạy (≈60.000 dòng) dưới dạng INSERT, dùng được cho `psql` hoặc SQL Editor.
+- Bật *Tự tải dữ liệu từ cloud khi mở app* → nhiều máy dùng chung một CSDL; khi chưa cấu hình, app vẫn chạy offline trên **SQLite WASM + IndexedDB** (không mất tính năng).
+- File mẫu: `docs/sql/schema.postgres.sql` (đã kiểm tra cú pháp bằng parser PostgreSQL).
 
 ### Data Explorer (dành cho dân kỹ thuật)
 - Danh sách **28 bảng** theo module kèm số dòng & dung lượng CSDL.
@@ -134,7 +183,7 @@ POS checkout()
   → Data Explorer (thấy dòng mới) & ERP Simulator (diff từng bước)
 ```
 
-### Cơ sở dữ liệu (28 bảng)
+### Cơ sở dữ liệu (33 bảng)
 
 | Module | Bảng |
 | --- | --- |
@@ -143,6 +192,8 @@ POS checkout()
 | Khách hàng | `customers`, `vouchers`, `promotions` |
 | Nhân sự | `users`, `shifts`, `shift_cash_txns` |
 | Tài chính | `finance_entries` |
+| Giao hàng | `deliveries`, `delivery_events` |
+| Thanh toán & in ấn | `bank_accounts`, `print_templates`, `print_jobs` |
 | Hệ thống | `branches`, `audit_logs`, `app_meta` |
 
 ERD trực quan: mở **Data Explorer → ERD** (chụp sẵn ở `docs/screenshots/19-data-explorer-erd.png`, xuất SVG được từ UI).
@@ -182,9 +233,11 @@ Giới hạn của gói free: băng thông/ưu lượng theo nhà cung cấp —
 
 ## 7. Ghi chú kỹ thuật & giới hạn
 
-- **Không có backend**: dữ liệu là của riêng từng trình duyệt. Hai máy khác nhau có hai CSDL độc lập; xoá dữ liệu trình duyệt = mất dữ liệu (dùng *Reset* để sinh lại bộ demo).
-- **Đồng bộ đa tab** trong cùng máy qua `BroadcastChannel`. Máy khác không thấy thay đổi (bản demo, không phải SaaS nhiều người dùng).
-- **VietQR / MoMo / ZaloPay / máy in** là mô phỏng: mã QR sinh theo chuẩn EMVCo nhưng không gọi cổng thanh toán; in dùng hộp thoại in của trình duyệt.
+- **Lưu trữ**: mặc định SQLite WASM + IndexedDB (riêng từng máy). Muốn dùng chung nhiều máy → cấu hình **Postgres (Supabase/Neon)** ở *Cài đặt → Cơ sở dữ liệu*; app đẩy/kéo toàn bộ 33 bảng qua REST. Chưa cấu hình thì vẫn chạy đầy đủ, offline.
+- **Đồng bộ đa tab** trong cùng máy qua `BroadcastChannel`.
+- **VietQR**: payload đúng chuẩn EMVCo/NAPAS 247, **quét được thật** bằng app ngân hàng; phần *xác nhận tiền về* là thao tác của thu ngân/kế toán trên màn hình đối soát (webhook ngân hàng cần hợp đồng với cổng thanh toán — nằm ngoài phạm vi bản này). MoMo/ZaloPay: tạo yêu cầu + callback mô phỏng.
+- **In**: dùng hộp thoại in của hệ điều hành (máy in nhiệt K80/K57, máy in laser A5/A4, hoặc *Save as PDF*). Trình duyệt không cho web tự gửi lệnh in không qua hộp thoại vì lý do bảo mật.
+- **Bản đồ/định tuyến** dùng dịch vụ công cộng miễn phí không cần key (OSM/Nominatim/OSRM) — có giới hạn rate, phù hợp demo & vận hành nhỏ; nếu cần SLA thì thay bằng Mapbox/Google (chỉ đổi 1 file `src/lib/geo.ts`).
 - **Sinh dữ liệu** ~3 giây lần đầu (7,7 MB SQLite, ~4.100 đơn, 22.000 dòng thẻ kho), sau đó tải lại tức thì từ IndexedDB.
 - **Múi giờ**: mọi phép tính ngày/giờ dùng `Asia/Ho_Chi_Minh` tuyệt đối (không phụ thuộc TZ máy chạy) — đã xử lý riêng vì sandbox build chạy UTC.
 - **Font** Be Vietnam Pro được nhúng sẵn (subset latin + vietnamese, 132 KB) để app chạy offline/không CDN.
@@ -214,6 +267,13 @@ Nếu bị chặn ở đâu (quyền GitHub, dịch vụ deploy…), dự án v�
 | Sửa dữ liệu ở chế độ chuyên gia + audit log | ✅ ghi `audit_logs.action = expert_update` |
 | ERP Simulator 5 bước + data diff | ✅ 42 thay đổi dữ liệu, 0 lỗi |
 | Console errors trên 18 route | ✅ 0 lỗi |
+| Giao hàng: bảng điều phối 4 cột trạng thái + gán tài xế + chuyển trạng thái | ✅ vận đơn `VD000034`, 5 mốc hành trình |
+| Bản đồ trực tuyến: tile OSM + tuyến OSRM + marker tài xế | ✅ 12 tile tải về, tuyến 1 km / 2 phút |
+| Trang theo dõi `#/track/VD…` (không đăng nhập) | ✅ bản đồ + timeline + COD 301.000 ₫ |
+| VietQR: sinh QR thật + CRC + copy payload | ✅ `STK 0071000123456`, CRC `E4A9`, ảnh QR render |
+| Đối soát chuyển khoản | ✅ 80 giao dịch chờ, xác nhận ghi `bank_txn_ref` |
+| Studio in ấn: 6 mẫu, xem trước có QR + barcode SVG | ✅ QR 1 + barcode 1 trên preview K80 |
+| Xuất `schema.sql` / `seed.sql` cho Postgres | ✅ 33 bảng + 33 RLS, 6,0 MB INSERT (60.854 dòng), cú pháp hợp lệ |
 
 Ảnh kiểm thử nằm trong `docs/screenshots/`.
 

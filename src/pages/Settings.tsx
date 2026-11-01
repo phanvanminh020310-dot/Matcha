@@ -1,11 +1,13 @@
 import { useState } from 'react'
-import { Building2, ClipboardList, CreditCard, Database, Grid3x3, Save, Shield, Store } from 'lucide-react'
+import { Building2, ClipboardList, Cloud, CreditCard, Database, Download, Grid3x3, RefreshCw, Save, Shield, Store, Upload } from 'lucide-react'
 import { getAuditLogs, getBranches, getTables, updateTablePosition } from '../lib/api'
 import { useSql } from '../hooks/useDb'
 import { useApp } from '../store/app'
 import { PageHeader, ResetDataButton } from '../components/layout/AppShell'
 import { Badge, Button, Card, CardHeader, Field, Input, Modal, Select, Switch, Tabs } from '../components/ui'
 import { dbSizeBytes, run } from '../lib/db'
+import { buildSeedSQL, loadCloud, localCounts, pullAll, pushAll, saveCloud, testCloud, toPgDDL, type CloudConfig, type SyncProgress } from '../lib/cloud'
+import { downloadFile } from '../lib/format'
 import {ROLE_PERMISSIONS, type Role} from '../lib/rbac'
 import { METHOD_LABEL, ROLE_LABEL, cx, formatDateTime, formatVND } from '../lib/format'
 
@@ -19,7 +21,7 @@ const PERM_LABEL: Record<string, string> = {
 
 export function SettingsPage() {
   const { branchId, toast } = useApp()
-  const [tab, setTab] = useState<'store' | 'tables' | 'rbac' | 'audit' | 'system'>('store')
+  const [tab, setTab] = useState<'store' | 'tables' | 'rbac' | 'audit' | 'cloud' | 'system'>('store')
   const branches = useSql(() => getBranches(), [])
   const tables = useSql(() => getTables(branchId), [branchId])
   const audit = useSql(() => getAuditLogs(80), [])
@@ -31,8 +33,10 @@ export function SettingsPage() {
       <PageHeader icon={<Store size={20} />} title="Cài đặt hệ thống" description="Thông tin cửa hàng, sơ đồ bàn, phân quyền, nhật ký và dữ liệu" />
       <Tabs value={tab} onChange={setTab} className="mb-3" tabs={[
         { value: 'store', label: 'Cửa hàng' }, { value: 'tables', label: 'Sơ đồ bàn' }, { value: 'rbac', label: 'Phân quyền' },
-        { value: 'audit', label: 'Nhật ký' }, { value: 'system', label: 'Hệ thống' },
+        { value: 'audit', label: 'Nhật ký' }, { value: 'cloud', label: 'Cơ sở dữ liệu' }, { value: 'system', label: 'Hệ thống' },
       ]} />
+
+      {tab === 'cloud' && <CloudDatabase />}
 
       {tab === 'store' && (
         <div className="grid gap-3 lg:grid-cols-2">
@@ -166,6 +170,135 @@ export function SettingsPage() {
           </Card>
         </div>
       )}
+    </div>
+  )
+}
+
+
+/* ------------------------- Cơ sở dữ liệu thật (Postgres) ------------------------- */
+function CloudDatabase() {
+  const { toast } = useApp()
+  const [cfg, setCfg] = useState<CloudConfig>(() => loadCloud())
+  const [testing, setTesting] = useState(false)
+  const [result, setResult] = useState<{ ok: boolean; message: string; latency?: number } | null>(null)
+  const [progress, setProgress] = useState<SyncProgress | null>(null)
+  const [busy, setBusy] = useState<'push' | 'pull' | null>(null)
+  const counts = localCounts()
+  const totalRows = counts.reduce((sum, c) => sum + c.rows, 0)
+
+  const update = (patch: Partial<CloudConfig>) => {
+    const next = { ...cfg, ...patch }
+    setCfg(next)
+    saveCloud(next)
+  }
+
+  const runSync = async (mode: 'push' | 'pull') => {
+    setBusy(mode)
+    setProgress(null)
+    try {
+      const res = mode === 'push' ? await pushAll(cfg, setProgress) : await pullAll(cfg, setProgress)
+      setCfg(loadCloud())
+      toast({ title: mode === 'push' ? 'Đã đẩy dữ liệu lên Postgres' : 'Đã tải dữ liệu từ Postgres', description: `${res.rows.toLocaleString('vi-VN')} dòng · ${new Date().toLocaleTimeString('vi-VN')}`, tone: 'success' })
+      if (mode === 'pull') setTimeout(() => location.reload(), 1200)
+    } catch (e) {
+      toast({ title: 'Đồng bộ thất bại', description: (e as Error).message.slice(0, 160), tone: 'error' })
+    } finally {
+      setBusy(null)
+      setProgress(null)
+    }
+  }
+
+  return (
+    <div className="grid gap-3 lg:grid-cols-2">
+      <Card>
+        <CardHeader title="Kết nối Postgres (Supabase / Neon)" subtitle="Nơi lưu dữ liệu thật, nhiều máy dùng chung" icon={<Cloud size={16} />} />
+        <div className="space-y-3 p-4">
+          <Field label="Project URL" hint="Supabase → Settings → API → Project URL, dạng https://xxxx.supabase.co">
+            <Input value={cfg.url} onChange={(e) => update({ url: e.target.value })} placeholder="https://abcdefgh.supabase.co" />
+          </Field>
+          <Field label="Anon / service key" hint="Supabase → Settings → API → anon public key. Key chỉ lưu trong máy bạn.">
+            <Input type="password" value={cfg.key} onChange={(e) => update({ key: e.target.value })} placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6..." />
+          </Field>
+          <label className="flex items-center justify-between rounded-xl bg-ink-50 px-3 py-2 text-[12px] dark:bg-ink-800">
+            <span className="text-ink-600 dark:text-ink-300">Tự tải dữ liệu từ cloud khi mở app</span>
+            <Switch checked={cfg.autoSync} onChange={(v) => update({ autoSync: v })} label="auto sync" />
+          </label>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="secondary" icon={<RefreshCw size={15} />} disabled={testing || !cfg.url || !cfg.key} onClick={async () => {
+              setTesting(true)
+              const r = await testCloud(cfg)
+              setResult(r)
+              setTesting(false)
+            }}>{testing ? 'Đang kiểm tra…' : 'Kiểm tra kết nối'}</Button>
+            <Button variant="primary" icon={<Upload size={15} />} disabled={!!busy || !cfg.url} onClick={() => runSync('push')}>
+              {busy === 'push' ? 'Đang đẩy…' : 'Đẩy dữ liệu lên'}
+            </Button>
+            <Button icon={<Download size={15} />} disabled={!!busy || !cfg.url} onClick={() => runSync('pull')}>
+              {busy === 'pull' ? 'Đang tải…' : 'Tải từ cloud'}
+            </Button>
+          </div>
+          {result && (
+            <div className={cx('rounded-xl p-2.5 text-[11.5px]', result.ok ? 'bg-matcha-50 text-matcha-800 dark:bg-matcha-900/20 dark:text-matcha-200' : 'bg-rose-50 text-rose-700 dark:bg-rose-900/20')}>
+              {result.ok ? '✅' : '⚠️'} {result.message}{result.latency ? ` · ${result.latency} ms` : ''}
+            </div>
+          )}
+          {progress && (
+            <div className="rounded-xl bg-ink-50 p-2.5 dark:bg-ink-800">
+              <div className="flex justify-between text-[11px] text-ink-500">
+                <span>{progress.done ? 'Hoàn tất' : `Bảng ${progress.table}`}</span>
+                <span>{progress.index}/{progress.total} · {progress.rows.toLocaleString('vi-VN')} dòng</span>
+              </div>
+              <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-ink-200 dark:bg-ink-700">
+                <div className="h-full rounded-full bg-matcha-600 transition-all" style={{ width: `${(progress.index / progress.total) * 100}%` }} />
+              </div>
+            </div>
+          )}
+          {cfg.lastSync && <p className="text-[11px] text-ink-400">Lần đồng bộ cuối: {formatDateTime(new Date(cfg.lastSync).toISOString().slice(0, 19).replace('T', ' '))} · {cfg.lastRows.toLocaleString('vi-VN')} dòng</p>}
+        </div>
+      </Card>
+
+      <div className="space-y-3">
+        <Card>
+          <CardHeader title="Bước 1 — Tạo bảng trên Postgres" subtitle="Chạy file SQL một lần trong SQL Editor" icon={<Database size={16} />} />
+          <div className="space-y-2 p-4 text-[12px] text-ink-600 dark:text-ink-300">
+            <ol className="list-inside list-decimal space-y-1">
+              <li>Tạo project miễn phí tại supabase.com (hoặc neon.tech).</li>
+              <li>Tải <b>schema.sql</b> bên dưới → mở SQL Editor → dán → Run.</li>
+              <li>Dán Project URL + anon key vào ô bên trái → Kiểm tra kết nối.</li>
+              <li>Bấm <b>Đẩy dữ liệu lên</b> để đưa {totalRows.toLocaleString('vi-VN')} dòng hiện có lên cloud (hoặc bấm <b>Tải từ cloud</b> nếu đã có dữ liệu).</li>
+            </ol>
+            <div className="flex flex-wrap gap-2 pt-1">
+              <Button variant="primary" size="sm" icon={<Download size={14} />} onClick={() => {
+                downloadFile('matcha-schema.sql', toPgDDL(), 'text/plain;charset=utf-8')
+                toast({ title: 'Đã tải schema.sql', description: '33 bảng + chỉ mục + RLS cho anon key', tone: 'success' })
+              }}>schema.sql (33 bảng + RLS)</Button>
+              <Button size="sm" icon={<Download size={14} />} onClick={() => {
+                const sql = buildSeedSQL()
+                downloadFile('matcha-seed.sql', sql, 'text/plain;charset=utf-8')
+                toast({ title: 'Đã tải seed.sql', description: `${(sql.length / 1024 / 1024).toFixed(1)} MB dữ liệu thật đang chạy`, tone: 'success' })
+              }}>seed.sql (dữ liệu hiện có)</Button>
+              <Button size="sm" variant="ghost" onClick={async () => {
+                await navigator.clipboard.writeText(toPgDDL())
+                toast({ title: 'Đã copy schema Postgres', tone: 'success' })
+              }}>Copy schema</Button>
+            </div>
+          </div>
+        </Card>
+
+        <Card>
+          <CardHeader title="Dữ liệu cục bộ" subtitle={`${counts.length} bảng · ${totalRows.toLocaleString('vi-VN')} dòng trong SQLite WASM (IndexedDB)`} icon={<Database size={16} />} />
+          <div className="max-h-[240px] overflow-y-auto p-3">
+            <div className="grid grid-cols-2 gap-1">
+              {counts.map((c) => (
+                <div key={c.table} className="flex items-center justify-between rounded-lg bg-ink-50 px-2 py-1 text-[11px] dark:bg-ink-800">
+                  <span className="truncate font-mono text-ink-500">{c.table}</span>
+                  <span className="font-semibold tabular-nums">{c.rows.toLocaleString('vi-VN')}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </Card>
+      </div>
     </div>
   )
 }

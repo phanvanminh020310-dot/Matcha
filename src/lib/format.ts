@@ -152,8 +152,10 @@ export function csvEscape(v: unknown) {
   return /[",\n;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
 }
 
-export function downloadFile(filename: string, content: string, type = 'text/csv;charset=utf-8;') {
-  const blob = new Blob(['\ufeff' + content], { type })
+export function downloadFile(filename: string, content: string, type = 'text/csv;charset=utf-8;', opts: { bom?: boolean } = {}) {
+  // BOM chỉ cần cho CSV (Excel đọc đúng tiếng Việt); file .sql thì BOM làm hỏng câu lệnh đầu tiên
+  const bom = (opts.bom ?? filename.endsWith('.csv')) ? '\ufeff' : ''
+  const blob = new Blob([bom + content], { type })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
