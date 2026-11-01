@@ -11,6 +11,7 @@ import { hashPassword, passwordProblem, verifyPassword } from '../lib/passwords'
 import { markDefaultPassword } from '../lib/defaultAdmin'
 import { REALTIME_SQL } from '../lib/realtime'
 import { RLS_SQL } from '../lib/rls'
+import { ConnectionSummaryCard } from '../components/ConnectionBanner'
 import { buildSeedSQL, checkToken, checkWritePermission, cloudCounts, flushCloudSave, keyWarning, loadCloud, localCounts, pullAll, pushAll, refreshWritePermission, saveCloud, testCloud, toPgDDL, tokenPermission, tokenWarning, type CloudConfig, type SyncProgress } from '../lib/cloud'
 import { downloadFile } from '../lib/format'
 import { buildShareLink, mintOrderShare, mintShareToken, type ShareMode } from '../lib/share'
@@ -67,7 +68,7 @@ export function SettingsPage() {
 
       {pwOpen && <ChangeAdminPassword onClose={() => setPwOpen(false)} />}
 
-      {tab === 'cloud' && (unlocked ? <CloudDatabase /> : (
+      {tab === 'cloud' && (unlocked ? (<><ConnectionSummaryCard /><CloudDatabase /></>) : (
         <Card className="p-6">
           <p className="text-[13px] font-semibold text-ink-900 dark:text-ink-50">Khu vực được bảo vệ</p>
           <p className="mt-1 max-w-md text-[12px] leading-relaxed text-ink-500 dark:text-ink-400">

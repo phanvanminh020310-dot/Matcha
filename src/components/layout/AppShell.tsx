@@ -15,6 +15,7 @@ import { cx, normalize, ROLE_LABEL } from '../../lib/format'
 import { Badge, Button, IconButton, Kbd } from '../ui'
 import { resetDatabase } from '../../lib/db'
 import { checkWritePermission, loadCloud } from '../../lib/cloud'
+import { ConnectionBanner } from '../ConnectionBanner'
 import { usingDefaultPassword } from '../../lib/defaultAdmin'
 import { isReadOnlyMode } from '../../lib/db'
 
@@ -223,6 +224,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <IconButton label="Đăng xuất" onClick={() => { logout(); navigate('/login') }}><LogOut size={17} /></IconButton>
           </div>
         </header>
+
+        <ConnectionBanner />
 
         {readOnly && (
           <div className="flex flex-wrap items-center gap-2 border-b border-amber-200 bg-amber-50 px-3 py-1.5 text-[11.5px] text-amber-900 dark:border-amber-800 dark:bg-amber-900/25 dark:text-amber-100 sm:px-5">
