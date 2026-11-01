@@ -15,7 +15,7 @@ create table if not exists public.sync_tokens (
   id         text primary key default substr(encode(sha256(convert_to(clock_timestamp()::text || random()::text, 'utf8')), 'hex'), 1, 12),
   label      text not null default 'Thiết bị',
   token_hash text not null unique,
-  branch_id  text references public.branches(id) on delete set null,
+  branch_id  bigint references public.branches(id) on delete set null,
   active     boolean not null default true,
   note       text,
   created_at timestamptz not null default now()
@@ -40,7 +40,7 @@ language sql stable security definer set search_path = public, pg_temp as $$
 $$;
 
 -- Chi nhánh mà mã thiết bị được phép ghi. NULL = toàn chuỗi.
-create or replace function public.sync_branch() returns text
+create or replace function public.sync_branch() returns bigint
 language sql stable security definer set search_path = public, pg_temp as $$
   select t.branch_id from public.sync_tokens t
   where t.active
@@ -119,7 +119,7 @@ end $$;
 -- insert into public.sync_tokens (label, token_hash, branch_id, note) values (
 --   'Máy quản lý chuỗi',
 --   encode(sha256(convert_to('mk_THAY_MA_CUA_BAN', 'utf8')), 'hex'),
---   null,                      -- null = toàn chuỗi; 'Q1' = chỉ chi nhánh Q1
+--   null,                      -- null = toàn chuỗi; 1 = chỉ ghi được chi nhánh id 1
 --   'máy chính'
 -- );
 

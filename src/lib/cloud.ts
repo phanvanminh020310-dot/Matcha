@@ -169,29 +169,32 @@ export async function testCloud(cfg: CloudConfig) {
     const rows = await probe.json()
     const count = Array.isArray(rows) ? rows.length : 0
     const base = count > 0 ? 'Kết nối tốt · bảng branches đã có dữ liệu' : 'Kết nối tốt · bảng branches đã tạo nhưng còn trống — hãy bấm “Đẩy dữ liệu lên”'
-    // Kiểm tra quyền GHI (RLS): upsert 1 dòng vô hại vào app_meta
+    // Kiểm tra quyền GHI qua RPC sync_ok() (không ghi dữ liệu rác).
+    //  true  = mã đồng bộ hợp lệ  ·  false = cloud bật RLS mà mã sai/thiếu  ·  404 = chưa chạy rls.sql
     let write = ''
     try {
-      const w = await fetch(`${normUrl(cfg.url)}/rest/v1/app_meta?on_conflict=key`, {
+      const w = await fetch(`${normUrl(cfg.url)}/rest/v1/rpc/sync_ok`, {
         method: 'POST',
-        headers: headers(cfg, { Prefer: 'return=minimal,resolution=merge-duplicates' }),
-        body: JSON.stringify([{ key: 'last_write_check', value: new Date().toISOString() }]),
+        headers: headers(cfg),
+        body: '{}',
         signal: AbortSignal.timeout(15000),
       })
       if (w.ok) {
-        write = ' · quyền ghi: OK'
-      } else if (w.status === 401 || w.status === 403) {
-        const body = await w.text()
-        const blocked = /row-level security|permission denied/i.test(body) || !(cfg.token ?? '').trim()
-        return {
-          ok: false,
-          latency,
-          message: blocked
-            ? 'Đọc được nhưng GHI bị chặn: cloud đã bật RLS. Dán đúng “Mã đồng bộ” ở ô bên dưới (hoặc tắt RLS bằng docs/sql/rls-off.sql nếu đang thử nghiệm).'
-            : `Không có quyền ghi (HTTP ${w.status}) — kiểm tra lại anon key`,
+        const val = await w.json().catch(() => null)
+        if (val === true) write = ' · quyền ghi: OK'
+        else if (val === false) {
+          return {
+            ok: false,
+            latency,
+            message: 'Đọc được nhưng GHI bị chặn: cloud đã bật RLS. Dán đúng “Mã đồng bộ” ở ô bên dưới (mất mã thì cấp lại bằng SQL — xem docs/huong-dan-supabase.md).',
+          }
         }
+      } else if (w.status === 404) {
+        write = ' · chưa bật RLS (ai có anon key cũng ghi được — nên chạy rls.sql)'
+      } else if (w.status === 401 || w.status === 403) {
+        write = ' · không kiểm tra được quyền ghi'
       }
-    } catch { /* bỏ qua: chỉ là kiểm tra phụ */ }
+    } catch { /* chỉ là kiểm tra phụ */ }
     return { ok: true, message: base + write, latency }
   } catch (e) {
     return { ok: false, message: `Không kết nối được: ${(e as Error).message}` }
