@@ -4,6 +4,10 @@
 
 Toàn bộ ứng dụng chạy **hoàn toàn trong trình duyệt**: SQLite biên dịch sang WebAssembly (`sql.js`), dữ liệu lưu bền trong **IndexedDB**. Không server, không cần đăng ký, không cần cài đặt — mở link là dùng được, và dữ liệu demo 90 ngày (~4.100 đơn) được sinh sẵn ngay lần mở đầu tiên.
 
+### 🔗 Bản chạy công khai: **https://phanvanminh020310-dot.github.io/Matcha/**
+
+Bấm là dùng — không đăng nhập, không cài đặt. Màn hình đăng nhập có 5 tài khoản demo, bấm 1 thẻ để vào.
+
 ---
 
 ## 1. Ảnh chụp màn hình
@@ -192,7 +196,7 @@ Nếu bị chặn ở đâu (quyền GitHub, dịch vụ deploy…), dự án v�
 
 ## 7b. Link công khai
 
-- **GitHub Pages** (vĩnh viễn, sau khi bật ở Settings): `https://phanvanminh020310-dot.github.io/Matcha/`
+- **GitHub Pages** (đang chạy): `https://phanvanminh020310-dot.github.io/Matcha/` — deploy tự động từ `main` bằng workflow `.github/workflows/deploy.yml`
 - **Bản build tĩnh** nằm trong thư mục `build/` của repo (tiện tải về mở trực tiếp hoặc deploy lên host khác).
 - Khi chạy local: `npm run serve` → `http://localhost:4173`.
 
