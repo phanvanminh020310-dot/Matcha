@@ -168,6 +168,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <ChevronDown size={13} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-ink-400" />
           </div>
 
+          {readOnly && (
+            <span title="Link chia sẻ chỉ đọc: Postgres chặn mọi thao tác ghi"
+              className="rounded-full bg-amber-100 px-2 py-1 text-[10.5px] font-semibold text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">
+              👁 chỉ xem
+            </span>
+          )}
+
           <IconButton label="Đổi giao diện sáng/tối" onClick={toggleTheme}>{theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}</IconButton>
 
           <div className="flex items-center gap-2 border-l border-ink-200 pl-2 dark:border-ink-700">
