@@ -33,6 +33,19 @@ export function JoinPage() {
     applySharePayload(p)
     setStep(isTursoUrl(p.url) ? 'Đang kết nối Turso…' : 'Đang kết nối Postgres…')
     const cfg = loadCloud()
+    const tcfg = loadTurso()
+    const fresh = isTursoUrl(p.url) && !!tcfg.lastSync && Date.now() - new Date(tcfg.lastSync).getTime() < 60 * 60 * 1000
+    if (fresh) {
+      // Máy này đã đồng bộ trong 60 phút qua → vào app luôn, không tải lại dữ liệu
+      setStep('Máy đã có dữ liệu mới — đang vào app…')
+      setDone(tcfg.lastRows || 1)
+      setTimeout(() => {
+        history.replaceState(null, '', `${location.pathname}#/login`)
+        navigate('/login', { replace: true })
+        location.reload()
+      }, 800)
+      return
+    }
     const job = isTursoUrl(p.url)
       ? tursoDelta(loadTurso(), (pr) => {
           setProgress(pr)

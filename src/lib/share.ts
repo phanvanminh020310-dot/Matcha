@@ -118,17 +118,22 @@ export async function mintSupabaseShareToken(cfg: CloudConfig, label: string, ca
 /** Áp cấu hình từ link vào máy này (lưu localStorage, bật tự đồng bộ). */
 export function applySharePayload(p: SharePayload) {
   if (isTursoUrl(p.url)) {
-    // Link Turso: token nằm ở p.key; "làm việc" → token ghi, "chỉ xem" → token chỉ đọc
+    // Link Turso: token nằm ở p.key; "làm việc" → token ghi, "đặt hàng" → token hạn chế, "chỉ xem" → token chỉ đọc
     const cur = loadTurso()
+    const url = p.url.trim()
+    const key = p.key.trim()
+    // Mở LẠI cùng link trên cùng máy: giữ nguyên mốc đồng bộ để KHÔNG tải lại toàn bộ dữ liệu
+    const same = cur.url === url && cur.lastSync &&
+      (p.mode === 'rw' ? cur.tokenRw === key : p.mode === 'order' ? cur.tokenOrder === key : cur.tokenRo === key)
     saveTurso({
-      url: p.url.trim(),
-      tokenRw: p.mode === 'rw' ? p.key.trim() : '',
-      tokenOrder: p.mode === 'order' ? p.key.trim() : '',
-      tokenRo: p.mode === 'ro' ? p.key.trim() : (cur.tokenRo ?? ''),
+      url,
+      tokenRw: p.mode === 'rw' ? key : cur.tokenRw ?? '',
+      tokenOrder: p.mode === 'order' ? key : cur.tokenOrder ?? '',
+      tokenRo: p.mode === 'ro' ? key : cur.tokenRo ?? '',
       enabled: true,
-      lastSeq: 0,
-      lastSync: null,
-      lastRows: 0,
+      lastSeq: same ? cur.lastSeq : 0,
+      lastSync: same ? cur.lastSync : null,
+      lastRows: same ? cur.lastRows : 0,
     })
     clearCloudError()
     return

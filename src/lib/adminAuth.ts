@@ -6,6 +6,7 @@
  *  4. Mọi lần mở khoá / đổi mật khẩu đều ghi audit log.
  */
 import { loadCloud, normCloudUrl } from './cloud'
+import { adminChangePasswordTurso, adminLoginTurso, adminTursoAvailable } from './adminTurso'
 import { run } from './db'
 
 const SKEY = 'matcha.admin.session'
@@ -75,6 +76,8 @@ function audit(action: string, ok: boolean) {
 /** Đăng nhập quản trị: xác thực ở Postgres, lưu phiên 60 phút trong sessionStorage. */
 export async function adminLogin(username: string, password: string, conn?: { url: string; key: string }): Promise<{ ok: boolean; message?: string }> {
   if (!username.trim() || !password) return { ok: false, message: 'Nhập tài khoản và mật khẩu quản trị.' }
+  // Máy đã bật Turso và giữ token GHI → xác thực trên Turso (không cần Supabase nữa)
+  if (adminTursoAvailable()) return adminLoginTurso(username, password)
   const r = await rpc<string | null>('admin_login', { p_user: username, p_pass: password }, conn)
   if (!r.ok) return { ok: false, message: r.message }
   const token = typeof r.data === 'string' ? r.data : ''
@@ -92,6 +95,7 @@ export async function adminLogin(username: string, password: string, conn?: { ur
 export async function adminChangePassword(oldPass: string, newPass: string): Promise<{ ok: boolean; message?: string }> {
   const s = readSession()
   if (!s) return { ok: false, message: 'Phiên quản trị đã hết hạn — đăng nhập lại.' }
+  if (adminTursoAvailable()) return adminChangePasswordTurso(oldPass, newPass)
   if (newPass.length < 10) return { ok: false, message: 'Mật khẩu mới phải từ 10 ký tự.' }
   const r = await rpc<boolean>('admin_change_password', { p_token: s.token, p_old: oldPass, p_new: newPass })
   if (!r.ok) return { ok: false, message: r.message }

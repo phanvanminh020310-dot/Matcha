@@ -5,6 +5,7 @@
 import { useState } from 'react'
 import { KeyRound, Lock, ShieldCheck } from 'lucide-react'
 import { adminLogin } from '../lib/adminAuth'
+import { adminTursoAvailable } from '../lib/adminTurso'
 import { loadCloud, normCloudUrl, saveCloud } from '../lib/cloud'
 import { Button, Card, Field, Input, Modal } from './ui'
 
@@ -13,7 +14,9 @@ export function AdminGate({ open, onClose, onUnlocked }: { open: boolean; onClos
   const [pass, setPass] = useState('')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
-  const missing = (() => { const c = loadCloud(); return !normCloudUrl(c.url) || !c.key })()
+  // Máy đã bật Turso (và giữ token ghi) → không cần địa chỉ/anon key Supabase nữa
+  const turso = adminTursoAvailable()
+  const missing = turso ? false : (() => { const c = loadCloud(); return !normCloudUrl(c.url) || !c.key })()
   const [url, setUrl] = useState('')
   const [key, setKey] = useState('')
 
@@ -50,8 +53,13 @@ export function AdminGate({ open, onClose, onUnlocked }: { open: boolean; onClos
         <div className="flex items-start gap-2 rounded-xl bg-ink-50 p-2.5 text-[11.5px] leading-relaxed text-ink-600 dark:bg-ink-800 dark:text-ink-300">
           <ShieldCheck size={16} className="mt-0.5 shrink-0 text-matcha-600" />
           <span>
-            Tài khoản quản trị được kiểm tra <b>trên máy chủ Postgres</b> (mật khẩu băm bcrypt, sai 5 lần khoá 15 phút).
-            Không có mật khẩu nào nằm trong mã nguồn app, và chỉ phiên hợp lệ mới mở được thông tin kết nối.
+            {turso ? (
+              <>Tài khoản quản trị được kiểm tra <b>trên máy chủ Turso</b> (mật khẩu băm bcrypt, sai 5 lần khoá 15 phút).
+              Không có mật khẩu nào nằm trong mã nguồn app, và chỉ máy giữ token ghi mới mở được cấu hình CSDL.</>
+            ) : (
+              <>Tài khoản quản trị được kiểm tra <b>trên máy chủ Postgres</b> (mật khẩu băm bcrypt, sai 5 lần khoá 15 phút).
+              Không có mật khẩu nào nằm trong mã nguồn app, và chỉ phiên hợp lệ mới mở được thông tin kết nối.</>
+            )}
           </span>
         </div>
         {missing && (
