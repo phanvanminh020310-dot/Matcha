@@ -28,7 +28,19 @@ export function loadCloud(): CloudConfig {
 }
 
 export function saveCloud(cfg: CloudConfig) {
-  localStorage.setItem(KEY, JSON.stringify(cfg))
+  // Cắt khoảng trắng/ký tự xuống dòng khi dán key — lỗi phổ biến nhất khi copy từ Supabase
+  const clean: CloudConfig = { ...cfg, url: cfg.url.trim().replace(/\/+$/, ''), key: cfg.key.trim() }
+  localStorage.setItem(KEY, JSON.stringify(clean))
+}
+
+/** Cảnh báo cấu hình: service key có toàn quyền, chỉ nên dùng khi thử nghiệm. */
+export function keyWarning(key: string): string | null {
+  const k = key.trim()
+  if (!k) return null
+  if (k.startsWith('sb_secret_') || k.includes('service_role')) return 'Đây là SECRET / service_role key — có toàn quyền ghi đè dữ liệu. Chỉ dùng để thử, không chia sẻ.'
+  if (k.startsWith('sb_publishable_')) return 'Key publishable mới của Supabase: nếu bước Kiểm tra báo 401, hãy dùng key legacy "anon" (chuỗi JWT bắt đầu bằng eyJ…).'
+  if (!k.startsWith('eyJ') && !k.startsWith('sb_')) return 'Key không giống anon key của Supabase (thường bắt đầu bằng eyJ… hoặc sb_publishable_…).'
+  return null
 }
 
 const normUrl = (url: string) => url.trim().replace(/\/+$/, '')
@@ -103,6 +115,7 @@ export async function testCloud(cfg: CloudConfig) {
   const started = performance.now()
   if (!cfg.url || !cfg.key) return { ok: false, message: 'Thiếu URL hoặc anon key' }
   try {
+    if (!/^https?:\/\//.test(cfg.url.trim())) return { ok: false, message: 'URL phải bắt đầu bằng https:// (ví dụ https://abcdefgh.supabase.co)' }
     const res = await fetch(`${normUrl(cfg.url)}/rest/v1/`, { headers: headers(cfg), signal: AbortSignal.timeout(12000) })
     const latency = Math.round(performance.now() - started)
     if (res.status === 401 || res.status === 403) return { ok: false, message: `Key không hợp lệ hoặc thiếu quyền (HTTP ${res.status})`, latency }
@@ -149,20 +162,31 @@ export async function pushAll(cfg: CloudConfig, onProgress?: (p: SyncProgress) =
   return { rows: total }
 }
 
-/** Kéo dữ liệu từ Postgres về máy (thay thế nội dung từng bảng). */
+/** Kéo dữ liệu từ Postgres về máy (thay thế nội dung từng bảng, có phân trang). */
 export async function pullAll(cfg: CloudConfig, onProgress?: (p: SyncProgress) => void) {
   const base = normUrl(cfg.url)
   let total = 0
   const results: { table: string; rows: number }[] = []
+  const PAGE = 500 // Supabase/PostgREST giới hạn số dòng mỗi request → phải phân trang bằng Range
+
   for (let i = 0; i < TABLES.length; i++) {
     const t = TABLES[i]
-    const res = await fetch(`${base}/rest/v1/${t.name}?select=*&limit=100000`, { headers: headers(cfg), signal: AbortSignal.timeout(30000) })
-    onProgress?.({ table: t.name, index: i + 1, total: TABLES.length, rows: 0 })
-    if (!res.ok) {
-      if (res.status === 404) continue
-      throw new Error(`Đọc ${t.name} thất bại: HTTP ${res.status}`)
+    const pk = pkOf(t.name)
+    const rows: Record<string, unknown>[] = []
+    for (let from = 0; from < 200000; from += PAGE) {
+      const res = await fetch(`${base}/rest/v1/${t.name}?select=*&order=${pk}.asc`, {
+        headers: headers(cfg, { Range: `${from}-${from + PAGE - 1}`, 'Range-Unit': 'items' }),
+        signal: AbortSignal.timeout(30000),
+      })
+      if (!res.ok) {
+        if (res.status === 404 && from === 0) break // bảng chưa tạo → bỏ qua
+        throw new Error(`Đọc ${t.name} thất bại: HTTP ${res.status} ${(await res.text()).slice(0, 120)}`)
+      }
+      const batch = (await res.json()) as Record<string, unknown>[]
+      rows.push(...batch)
+      onProgress?.({ table: t.name, index: i + 1, total: TABLES.length, rows: rows.length })
+      if (batch.length < PAGE) break
     }
-    const rows = (await res.json()) as Record<string, unknown>[]
     if (!rows.length) { results.push({ table: t.name, rows: 0 }); continue }
     const cols = Object.keys(rows[0])
     const statements = [

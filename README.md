@@ -127,6 +127,7 @@ Chi nhánh chuyển được ở góc trên phải: **Q1 · TP.HCM**, **Q3 · TP
 - Tải **`seed.sql`**: toàn bộ dữ liệu đang chạy (≈60.000 dòng) dưới dạng INSERT, dùng được cho `psql` hoặc SQL Editor.
 - Bật *Tự tải dữ liệu từ cloud khi mở app* → nhiều máy dùng chung một CSDL; khi chưa cấu hình, app vẫn chạy offline trên **SQLite WASM + IndexedDB** (không mất tính năng).
 - File mẫu: `docs/sql/schema.postgres.sql` (đã kiểm tra cú pháp bằng parser PostgreSQL).
+- **Hướng dẫn bật Supabase từng bước (7 bước, kèm xử lý sự cố): [`docs/huong-dan-supabase.md`](docs/huong-dan-supabase.md)**
 
 ### Data Explorer (dành cho dân kỹ thuật)
 - Danh sách **28 bảng** theo module kèm số dòng & dung lượng CSDL.

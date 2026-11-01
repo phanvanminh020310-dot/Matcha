@@ -6,7 +6,7 @@ import { useApp } from '../store/app'
 import { PageHeader, ResetDataButton } from '../components/layout/AppShell'
 import { Badge, Button, Card, CardHeader, Field, Input, Modal, Select, Switch, Tabs } from '../components/ui'
 import { dbSizeBytes, run } from '../lib/db'
-import { buildSeedSQL, loadCloud, localCounts, pullAll, pushAll, saveCloud, testCloud, toPgDDL, type CloudConfig, type SyncProgress } from '../lib/cloud'
+import { buildSeedSQL, keyWarning, loadCloud, localCounts, pullAll, pushAll, saveCloud, testCloud, toPgDDL, type CloudConfig, type SyncProgress } from '../lib/cloud'
 import { downloadFile } from '../lib/format'
 import {ROLE_PERMISSIONS, type Role} from '../lib/rbac'
 import { METHOD_LABEL, ROLE_LABEL, cx, formatDateTime, formatVND } from '../lib/format'
@@ -219,6 +219,9 @@ function CloudDatabase() {
           <Field label="Anon / service key" hint="Supabase → Settings → API → anon public key. Key chỉ lưu trong máy bạn.">
             <Input type="password" value={cfg.key} onChange={(e) => update({ key: e.target.value })} placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6..." />
           </Field>
+          {keyWarning(cfg.key) && (
+            <p className="rounded-xl bg-amber-50 p-2 text-[11px] leading-relaxed text-amber-800 dark:bg-amber-900/20 dark:text-amber-200">⚠️ {keyWarning(cfg.key)}</p>
+          )}
           <label className="flex items-center justify-between rounded-xl bg-ink-50 px-3 py-2 text-[12px] dark:bg-ink-800">
             <span className="text-ink-600 dark:text-ink-300">Tự tải dữ liệu từ cloud khi mở app</span>
             <Switch checked={cfg.autoSync} onChange={(v) => update({ autoSync: v })} label="auto sync" />
